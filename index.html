@@ -56,7 +56,7 @@ body.touch #btns{grid-template-columns:repeat(2,minmax(0,1fr))}
   <div id="stage">
     <canvas id="cv"></canvas>
     <div id="toast"></div>
-    <div id="build">build 2026-11-18c</div>
+    <div id="build">build 2026-11-18d</div>
     <div class="ov on" id="ovTitle"><div class="card">
       <h1>Colossus Roams</h1>
       <p class="dim">A giant two thousand feet tall walks the land. Below it, three towns go about their quests. Some will arm it against their rivals. Some will cut it down.</p>
@@ -81,26 +81,34 @@ const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 
 // ---------- constants ----------
 const C={
-  MAP:5200, DT:1/30,
-  G_SPEED:42, G_STEP:2.6, FOOT_R:95, CRUSH_DMG:120, CRUSH_TOWN:35,
+  MAP:9000, DT:1/30, MONSTERS:110, CRYSTALS:80, MARKS:7, GROW_PASSIVE:0.4, OUTPOSTS:2,
+  G_SPEED:60, G_STEP:2.6, FOOT_R:95, CRUSH_DMG:120, CRUSH_TOWN:35,
   STOMP_CD:8, STOMP_R:230, STOMP_DMG:55, STOMP_TOWN:70, STOMP_WIND:1.0,
   SMASH_CD:10, SMASH_REACH:520, SMASH_R:170, SMASH_DMG:90, SMASH_TOWN:150, SMASH_WIND:1.3,
   SHAKE_CD:11, SHAKE_WIND:1.1, SHAKE_GRIP:55, SHAKE_GRIP_BRACED:18, SHAKE_SPIKE:0.35,
-  FALL_TIME:20, ROOT_TIME:5, ROOT_REGEN:4, POND_MAX:160, REGEN:2, TOWN_HP:1900,
+  FALL_TIME:16, ROOT_TIME:5, ROOT_REGEN:4, POND_MAX:160, REGEN:2, TOWN_HP:1900,
   H_SPEED:150, CLIMB_TIME:2.4, GRIP_IDLE:2.2, GRIP_MOVE:6, GRIP_REST:9,
   CANNON_CD:2.6, CANNON_RANGE:760, CANNON_TOWN:28, CANNON_HUM:22,
   SPIKE_DPS:2.6, SLOTS:2,
   COST:{spike:30,cannon:55,sword:60,armor:50,potion:15},
 };
 const PARTS={
-  lleg:{name:'Left leg',max:1400,sx:-.16,sy:.24,h:500},
-  rleg:{name:'Right leg',max:1400,sx:.16,sy:.24,h:500},
+  lleg:{name:'Left leg',max:1700,sx:-.16,sy:.24,h:500},
+  rleg:{name:'Right leg',max:1700,sx:.16,sy:.24,h:500},
   torso:{name:'Back',max:600,sx:0,sy:.58,h:1250},
   larm:{name:'Left arm',max:420,sx:-.36,sy:.56,h:1300},
   rarm:{name:'Right arm',max:420,sx:.36,sy:.56,h:1300},
-  head:{name:'Head',max:2600,sx:0,sy:.86,h:1900},
+  head:{name:'Head',max:3400,sx:0,sy:.86,h:1900},
 };
 const ADJ={lleg:['torso'],rleg:['torso'],torso:['lleg','rleg','larm','rarm','head'],larm:['torso'],rarm:['torso'],head:['torso']};
+// settlements start as camps and grow with the gold their people bring home
+const TIERS=[
+  {name:'Camp',hp:1400,r:90,houses:5,grow:250},
+  {name:'Village',hp:2000,r:120,houses:10,grow:600},
+  {name:'Town',hp:2600,r:150,houses:16,grow:1200},
+  {name:'City',hp:3200,r:185,houses:24,grow:Infinity},
+];
+const OUTPOST_NAMES=[['Ashmere','Ashwell'],['Brindle Ford','Brindlemoor'],['Corvel Rest','Corvelmere']];
 const TOWNS=[
   {name:'Ashford',col:'#7cc4ff',shape:'circle'},
   {name:'Brindle',col:'#ffb35c',shape:'square'},
@@ -134,12 +142,12 @@ let S=null;
 function newGame(role,seed){
   rnd=mulberry32(seed|0);
   const M=C.MAP,cx=M/2,cy=M/2;
-  const towns=TOWNS.map((t,i)=>{const a=-Math.PI/2+i*Math.PI*2/3;return{i,name:t.name,col:t.col,shape:t.shape,x:cx+Math.cos(a)*1900,y:cy+Math.sin(a)*1900,r:150,hp:C.TOWN_HP,max:C.TOWN_HP,alive:true}});
+  const towns=TOWNS.map((t,i)=>{const a=-Math.PI/2+i*Math.PI*2/3;return mkTown(i,t.name,cx+Math.cos(a)*3300,cy+Math.sin(a)*3300,i)});
   const parts={};for(const k in PARTS)parts[k]={hp:PARTS[k].max,max:PARTS[k].max,crip:false,builds:[]};
   const g={x:cx,y:cy+150,ang:-Math.PI/2,tx:null,ty:null,parts,fallen:0,dead:false,
     feet:[{x:cx-80,y:cy+150,air:0,lx:0,ly:0},{x:cx+80,y:cy+150,air:0,lx:0,ly:0}],stepT:0,active:0,
-    cd:{stomp:2,smash:3,shake:4},wind:null,still:0,rooted:false,botT:0,targetTown:null,kills:0};
-  S={role,seed,t:0,towns,g,ponds:[],humans:[],monsters:[],crystals:[],shots:[],fx:[],msgs:[],over:null,nextId:1,camZoom:1};
+    cd:{stomp:2,smash:3,shake:4},wind:null,still:0,rooted:false,botT:0,target:null,kills:0};
+  S={role,seed,t:0,towns,g,ponds:[],marks:[],townSeq:3,founded:[0,0,0],humans:[],monsters:[],crystals:[],shots:[],fx:[],msgs:[],over:null,nextId:1,camZoom:1};
   const youTown=0;
   // humans
   const roles=['warden','raider','warden','warden','raider','warden','raider','warden','warden'];
@@ -148,18 +156,36 @@ function newGame(role,seed){
     const isYou=role==='human'&&ti===youTown&&k===0;
     S.humans.push(mkHuman(ti,isYou,isYou?'you':roles[n++%roles.length]));
   }
-  for(let i=0;i<46;i++)spawnMonster();
-  for(let i=0;i<30;i++)spawnCrystal();
+  // old giants that turned to stone long ago: landmarks seen from afar, and troll lairs
+  for(let i=0;i<C.MARKS;i++){let x,y,ok=false;for(let k=0;k<40&&!ok;k++){x=rr(500,M-500);y=rr(500,M-500);ok=S.towns.every(t=>Math.hypot(t.x-x,t.y-y)>1300)&&Math.hypot(x-cx,y-cy)>1200&&S.marks.every(m=>Math.hypot(m.x-x,m.y-y)>1800)}
+    if(ok)S.marks.push(markOf(x,y,rr(0,6.28)))}
+  for(let i=0;i<C.MONSTERS;i++)spawnMonster();
+  for(let i=0;i<C.CRYSTALS;i++)spawnCrystal();
   S.you=role==='human'?S.humans[0]:null;
   return S;
 }
+function mkTown(i,name,x,y,id){const T=TIERS[0];return{i,id,name,col:TOWNS[i].col,shape:TOWNS[i].shape,x,y,tier:0,r:T.r,hp:T.hp,max:T.hp,growth:0,alive:true}}
+function markOf(x,y,ang){const parts={};for(const k in PARTS)parts[k]={hp:1,max:1,crip:false,builds:[]};
+  const fake={x,y,ang,fallen:1,dead:false,rooted:true,parts,feet:[{x,y,air:0},{x,y,air:0}]};return{x,y,boulders:giantBoulders(fake).map(b=>({...b,z:b.z*1.3,r:b.r*1.25}))}}
+function settlements(f){return S.towns.filter(t=>t.alive&&t.i===f)}
+function homeOf(h){const own=settlements(h.town);const pool=own.length?own:S.towns.filter(t=>t.alive);let b=null,bd=1e9;for(const t of pool){const d=dist(t,h);if(d<bd){bd=d;b=t}}return b}
+function grow(t,gold){if(!t.alive)return;t.growth+=gold;const T=TIERS[t.tier];if(t.growth<T.grow)return;t.growth-=T.grow;t.tier++;const N=TIERS[t.tier];
+  t.hp+=N.hp-t.max;t.max=N.hp;t.r=N.r;announce(t.name+' has grown into a '+N.name.toLowerCase()+'.');
+  if(t.tier===3)foundOutpost(t)}
+function foundOutpost(t){const f=t.i;if(S.founded[f]>=C.OUTPOSTS)return;
+  // a city sends settlers to the nearest big footprint lake: the giant's trail is fresh water
+  let best=null,bd=1e9;for(const pd of S.ponds){if(pd.r<110)continue;const d=dist(pd,t);if(d<500||d>3500)continue;if(S.towns.some(o=>o.alive&&dist(o,pd)<900))continue;if(d<bd){bd=d;best=pd}}
+  let x,y;if(best){x=best.x+best.r+120;y=best.y}else{const a=rr(0,6.28);x=t.x+Math.cos(a)*1400;y=t.y+Math.sin(a)*1400}
+  x=clamp(x,300,C.MAP-300);y=clamp(y,300,C.MAP-300);
+  const n=mkTown(f,OUTPOST_NAMES[f][S.founded[f]],x,y,S.townSeq++);S.founded[f]++;S.towns.push(n);
+  announce(t.name+' sent settlers to found '+n.name+(best?' beside a footprint lake.':'.'))}
 function mkHuman(ti,isYou,role){const t=S.towns[ti];
   return{id:S.nextId++,town:ti,you:isYou,role,x:t.x+rr(-60,60),y:t.y+rr(-60,60),hp:100,max:100,atk:10,def:0,lvl:1,xp:0,gold:25,
     kits:{spike:0,cannon:0},potions:1,quest:null,mode:'ground',part:null,to:null,prog:0,grip:100,cd:0,dead:0,lastAct:-9,
     tx:null,ty:null,goal:null,think:0,face:0,swing:0,name:isYou?'You':TOWNS[ti].name+' '+(['warden','raider'].includes(role)?role:'')}}
-function spawnMonster(){const M=C.MAP;let x,y,ok=false;
-  for(let k=0;k<20&&!ok;k++){x=rr(150,M-150);y=rr(150,M-150);ok=S.towns.every(t=>Math.hypot(t.x-x,t.y-y)>480)}
-  const troll=rnd()<.22;S.monsters.push({id:S.nextId++,kind:troll?'troll':'wolf',x,y,hp:troll?90:32,max:troll?90:32,atk:troll?13:6,gold:troll?24:9,xp:troll?30:12,r:troll?20:13,cd:0,hx:x,hy:y})}
+function spawnMonster(){const M=C.MAP;let x,y,ok=false;const lair=S.marks.length&&rnd()<.3;
+  for(let k=0;k<20&&!ok;k++){if(lair){const m=S.marks[Math.floor(rnd()*S.marks.length)],a=rr(0,6.28),d=rr(300,700);x=clamp(m.x+Math.cos(a)*d,150,M-150);y=clamp(m.y+Math.sin(a)*d,150,M-150)}else{x=rr(150,M-150);y=rr(150,M-150)}ok=S.towns.every(t=>Math.hypot(t.x-x,t.y-y)>480)}
+  const troll=lair?rnd()<.7:rnd()<.15;S.monsters.push({id:S.nextId++,kind:troll?'troll':'wolf',x,y,hp:troll?90:32,max:troll?90:32,atk:troll?13:6,gold:troll?24:9,xp:troll?30:12,r:troll?20:13,cd:0,hx:x,hy:y})}
 function spawnCrystal(){const M=C.MAP;
   // half the sky crystals wash up at the edges of the giant's footprint lakes, so its trail is worth following
   if(S.ponds.length>4&&rnd()<.5){const pd=S.ponds[Math.floor(rnd()*S.ponds.length)],a=rr(0,6.28);S.crystals.push({id:S.nextId++,x:clamp(pd.x+Math.cos(a)*(pd.r+24),40,M-40),y:clamp(pd.y+Math.sin(a)*(pd.r+24),40,M-40)});return}
@@ -334,7 +360,7 @@ function newQuest(h){const lv=h.lvl;if(rnd()<.55)return{k:'slay',need:2+lv,n:0,g
   return{k:'gather',need:2+Math.ceil(lv/2),n:0,gold:25+lv*12,xp:25+lv*10,text:'Gather '+(2+Math.ceil(lv/2))+' sky crystals'}}
 
 function stepHuman(h,dt,mv){
-  if(h.dead){h.dead-=dt;if(h.dead<=0){h.dead=0;const home=S.towns[h.town].alive?S.towns[h.town]:S.towns.find(t=>t.alive)||S.towns[h.town];
+  if(h.dead){h.dead-=dt;if(h.dead<=0){h.dead=0;const home=homeOf(h)||S.towns[0];
     h.x=home.x+rr(-50,50);h.y=home.y+rr(-50,50);h.hp=h.max;h.mode='ground'}return}
   h.cd=Math.max(0,h.cd-dt);h.swing=Math.max(0,h.swing-dt);
   if(h.mode==='climb'){const g=S.g;
@@ -357,7 +383,7 @@ function stepHuman(h,dt,mv){
     if(h.quest&&h.quest.k==='gather'){h.quest.n++;questCheck(h)}if(h.you){sfx('coin');toast('Sky crystal!'+(h.quest&&h.quest.k==='gather'?' ('+Math.min(h.quest.n,h.quest.need)+'/'+h.quest.need+')':''))}}}
   // in town: auto heal, claim quests
   const t=townAt(h);if(t){h.hp=Math.min(h.max,h.hp+8*dt);
-    if(h.quest&&h.quest.done){h.gold+=h.quest.gold;gainXp(h,h.quest.xp);if(h.you){toast('Quest reward: '+h.quest.gold+' gold.');sfx('coin')}h.quest=null}
+    if(h.quest&&h.quest.done){h.gold+=h.quest.gold;if(t.i===h.town)grow(t,h.quest.gold);gainXp(h,h.quest.xp);if(h.you){toast('Quest reward: '+h.quest.gold+' gold.');sfx('coin')}h.quest=null}
     if(!h.quest&&!h.you)h.quest=newQuest(h)}
 }
 
@@ -369,7 +395,7 @@ function stepMonsters(dt){
       else if(m.cd<=0){m.cd=1;hurtHuman(tgt,m.atk,'beast')}}
     else{const dx=m.hx-m.x,dy=m.hy-m.y,d=Math.hypot(dx,dy);if(d>30){m.x+=dx/d*40*dt;m.y+=dy/d*40*dt}else if(rnd()<.01){m.hx=m.x+rr(-200,200);m.hy=m.y+rr(-200,200)}}}
   for(let i=S.monsters.length-1;i>=0;i--)if(S.monsters[i].hp<=0)S.monsters.splice(i,1);
-  while(S.monsters.length<46)spawnMonster()}
+  while(S.monsters.length<C.MONSTERS)spawnMonster()}
 
 // ---------- shots ----------
 function stepShots(dt){for(let i=S.shots.length-1;i>=0;i--){const s=S.shots[i];s.t+=dt/s.dur;
@@ -419,45 +445,45 @@ function botHuman(h,dt){const mv={x:0,y:0};if(h.dead)return mv;const g=S.g;
   if(G.k==='foot'){const f=g.feet[G.i];if(f.air>0){h.goal=null;return mv}tx=f.x;ty=f.y;
     const part=nearFoot(h);if(part){if(g.fallen>0&&h.role!=='raider'&&part!=='head'){const hp=headPos(g);tx=hp.x;ty=hp.y}else{mount(h,part);return mv}}}
   if(G.k==='head'){const hp=headPos(g);tx=hp.x;ty=hp.y;const part=nearFoot(h);if(part==='head'){mount(h,'head');return mv}}
-  if(G.k==='shop'){const t=S.towns[G.t];if(!t.alive){h.goal=null;return mv}if(townAt(h)===t){botShop(h);h.goal=null;return mv}}
+  if(G.k==='shop'){const t=G.town;if(!t.alive){h.goal=null;return mv}if(townAt(h)===t){botShop(h);h.goal=null;return mv}}
   const dx=tx-h.x,dy=ty-h.y,d=Math.hypot(dx,dy);if(d>8){mv.x=dx/d;mv.y=dy/d}
   if(G.k==='crystal'&&d<20)h.goal=null;
   return mv}
 function pickGoal(h){const g=S.g;
-  const home=S.towns[h.town].alive?S.towns[h.town]:S.towns.filter(t=>t.alive).sort((a,b)=>dist(a,h)-dist(b,h))[0];
+  const home=homeOf(h);
   if(!home)return null;
-  if(h.quest&&h.quest.done)return{k:'shop',t:home.i,x:home.x,y:home.y};
-  if(h.hp<h.max*.35)return{k:'shop',t:home.i,x:home.x,y:home.y};
+  if(h.quest&&h.quest.done)return{k:'shop',town:home,x:home.x,y:home.y};
+  if(h.hp<h.max*.35)return{k:'shop',town:home,x:home.x,y:home.y};
   const dG=dist(g,h);
   if(!g.dead&&g.fallen>0&&h.role!=='raider'&&dG<1800)return{k:'head'};
   const want=h.role==='raider'?'cannon':'spike';
   if(!g.dead&&h.kits[want]>0&&dG<2000){
     // raiders only arm the giant when it is not heading for their town
-    const tt=g.targetTown!=null?S.towns[g.targetTown]:null;
+    const tt=g.target&&g.target.alive?g.target:null;
     if(h.role==='warden'||!tt||tt.i!==h.town){let bi=0,bd=1e9;g.feet.forEach((f,i)=>{const d=Math.hypot(f.x-h.x,f.y-h.y);if(d<bd&&f.air<=0){bd=d;bi=i}});return{k:'foot',i:bi}}}
   if(h.role==='warden'&&g.rooted&&dG<1600&&!g.dead){return{k:'foot',i:rnd()<.5?0:1}}
   if(h.role==='warden'&&h.lvl>=3&&dG<700&&!g.dead){return{k:'foot',i:rnd()<.5?0:1}}
-  if(h.gold>=C.COST[want]+(h.potions?0:C.COST.potion)&&h.kits[want]<2)return{k:'shop',t:home.i,x:home.x,y:home.y};
-  if(h.gold>=C.COST.sword+40&&h.lvl>=3&&rnd()<.3)return{k:'shop',t:home.i,x:home.x,y:home.y};
+  if(h.gold>=C.COST[want]+(h.potions?0:C.COST.potion)&&h.kits[want]<2)return{k:'shop',town:home,x:home.x,y:home.y};
+  if(h.gold>=C.COST.sword+40&&h.lvl>=3&&rnd()<.3)return{k:'shop',town:home,x:home.x,y:home.y};
   if(h.quest&&h.quest.k==='gather'){let b=null,bd=1e9;for(const c of S.crystals){const d=dist(c,h);if(d<bd){bd=d;b=c}}if(b)return{k:'crystal',x:b.x,y:b.y}}
   let b=null,bd=1e9;for(const m of S.monsters){const d=dist(m,h)+(m.kind==='troll'&&h.lvl<3?600:0);if(d<bd){bd=d;b=m}}
   return b?{k:'monster',id:b.id}:null}
-function botShop(h){const want=h.role==='raider'?'cannon':'spike';
+function botShop(h){const t=townAt(h);const want=h.role==='raider'?(t&&t.tier>=1?'cannon':'spike'):'spike';
   while(h.kits[want]<2&&h.gold>=C.COST[want]){h.gold-=C.COST[want];h.kits[want]++}
   if(!h.potions&&h.gold>=C.COST.potion){h.gold-=C.COST.potion;h.potions++}
-  if(h.gold>=C.COST.sword){h.gold-=C.COST.sword;h.atk+=4}}
+  if(h.gold>=C.COST.sword){h.gold-=C.COST.sword;h.atk+=4}
+  if(t&&t.tier>=2&&h.gold>=C.COST.armor&&h.def<15){h.gold-=C.COST.armor;h.def+=3}}
 
 function botGiant(dt){const g=S.g;if(g.dead||g.fallen>0)return;g.botT-=dt;
   const alive=S.towns.filter(t=>t.alive);
-  if(g.targetTown==null||!S.towns[g.targetTown].alive||g.botT<=0){g.botT=20;
-    // prefer the town with the fewest defenders nearby, ties by distance
-    alive.sort((a,b)=>dist(a,g)-dist(b,g));const t=alive[rnd()<.75?0:Math.min(1,alive.length-1)];if(t)g.targetTown=t.i}
+  if(!g.target||!g.target.alive||g.botT<=0){g.botT=25;
+    alive.sort((a,b)=>dist(a,g)-dist(b,g));const t=alive[rnd()<.75?0:Math.min(1,alive.length-1)];g.target=t||null}
   const climbersNow=S.humans.filter(h=>h.mode==='climb'&&h.role!=='raider').length;
   const legLow=Math.min(g.parts.lleg.hp/g.parts.lleg.max,g.parts.rleg.hp/g.parts.rleg.max);
   if(g.resting&&(legLow>.85||climbersNow>=1))g.resting=false;
   if(!g.resting&&legLow<.4&&climbersNow===0)g.resting=true;
   if(g.resting){g.tx=g.ty=null}
-  const t=g.resting?null:S.towns[g.targetTown];if(t){const d=dist(g,t);if(d>t.r+160){g.tx=t.x;g.ty=t.y}else{g.tx=t.x+Math.cos(S.t*.2)*200;g.ty=t.y+Math.sin(S.t*.2)*200}
+  const t=g.resting?null:g.target;if(t){const d=dist(g,t);if(d>t.r+160){g.tx=t.x;g.ty=t.y}else{g.tx=t.x+Math.cos(S.t*.2)*200;g.ty=t.y+Math.sin(S.t*.2)*200}
     if(d<C.SMASH_REACH+t.r)giantDo('smash')}
   const climbers=S.humans.filter(h=>h.mode==='climb');
   const hostile=climbers.filter(h=>h.role!=='raider').length;
@@ -465,7 +491,7 @@ function botGiant(dt){const g=S.g;if(g.dead||g.fallen>0)return;g.botT-=dt;
   let nearF=0;for(const h of S.humans)if(!h.dead&&h.mode==='ground')for(const f of g.feet)if(Math.hypot(f.x-h.x,f.y-h.y)<C.STOMP_R*.9)nearF++;
   if(nearF>=2)giantDo('stomp')}
 // the player giant: track the town it heads for so raider bots know
-function trackGiantTarget(){const g=S.g;if(g.tx==null)return;let b=null,bd=1e9;for(const t of S.towns)if(t.alive){const d=Math.hypot(t.x-g.tx,t.y-g.ty);if(d<bd){bd=d;b=t}}if(b&&bd<700)g.targetTown=b.i;else g.targetTown=null}
+function trackGiantTarget(){const g=S.g;if(g.tx==null)return;let b=null,bd=1e9;for(const t of S.towns)if(t.alive){const d=Math.hypot(t.x-g.tx,t.y-g.ty);if(d<bd){bd=d;b=t}}if(b&&bd<700)g.target=b;else g.target=null}
 
 // ---------- game step ----------
 function step(dt){if(S.over)return;S.t+=dt;sndBudget=Math.max(0,sndBudget-dt*20);
@@ -478,16 +504,17 @@ function step(dt){if(S.over)return;S.t+=dt;sndBudget=Math.max(0,sndBudget-dt*20)
   // player actions
   for(const a of takePresses()){if(S.role==='giant'){if(a==='A')giantDo('stomp');else if(a==='B')giantDo('smash');else if(a==='X')giantDo('shake');else if(a==='Y'){S.camZoom=S.camZoom===1?1.8:1}}
     else if(S.you)humanAct(S.you,a)}
+  for(const t of S.towns)if(t.alive)grow(t,C.GROW_PASSIVE*dt);
   stepGiant(dt);stepMonsters(dt);stepShots(dt);
   for(let i=S.fx.length-1;i>=0;i--){S.fx[i].t+=dt;if(S.fx[i].t>S.fx[i].life)S.fx.splice(i,1)}
   checkEnd()}
 let climbLatch=false;
-function checkEnd(){const alive=S.towns.filter(t=>t.alive);let over=null;
+function checkEnd(){const live=[0,1,2].filter(f=>settlements(f).length);let over=null;
   if(S.g.dead)over={giantWon:false,text:'The giant has been slain.'};
-  else if(alive.length<=1)over={giantWon:true,text:alive.length?'Only '+alive[0].name+' still stands.':'Every town lies in ruins.'};
-  else if(S.role==='human'&&!S.towns[S.you.town].alive)over={giantWon:true,text:'Your home, '+S.towns[S.you.town].name+', has fallen.',youLost:true};
+  else if(live.length<=1)over={giantWon:true,text:live.length?'Only the people of '+TOWNS[live[0]].name+' still stand.':'Every settlement lies in ruins.'};
+  else if(S.role==='human'&&!settlements(S.you.town).length)over={giantWon:true,text:'Every settlement of '+TOWNS[S.you.town].name+' has fallen.',youLost:true};
   if(!over)return;S.over=over;
-  let win;if(S.role==='giant')win=over.giantWon;else win=!over.youLost&&(over.giantWon?S.towns[S.you.town].alive:true);
+  let win;if(S.role==='giant')win=over.giantWon;else win=!over.youLost&&(over.giantWon?settlements(S.you.town).length>0:true);
   over.win=win;
   if(S.role==='giant'){if(win)save.giantWins++;else save.giantLosses++}else{if(win)save.humanWins++;else save.humanLosses++}persist();
   setTimeout(()=>openEnd(),900)}
@@ -592,13 +619,14 @@ function showMenu(title,bodyHtml,items,back,keep){document.getElementById('menuH
 function openTitle(){S=null;ovMenu.classList.remove('on');ovTitle.classList.add('on');
   document.getElementById('record').textContent=`As giant: ${save.giantWins} won, ${save.giantLosses} lost. As human: ${save.humanWins} won, ${save.humanLosses} lost.`;
   setButtons(document.getElementById('titleBtns'),[
-    {id:'g',label:'Play as the Giant',sub:'Walk the land, crush two of the three towns',go:()=>start('giant')},
-    {id:'h',label:'Play as a Human',sub:'Quest, shop, climb. Keep Ashford standing.',go:()=>start('human')},
+    {id:'g',label:'Play as the Giant',sub:'Wipe out two of the three peoples',go:()=>start('giant')},
+    {id:'h',label:'Play as a Human',sub:'Quest, grow your camp, climb. Keep Ashford alive.',go:()=>start('human')},
     {id:'help',label:'How to play',go:()=>openHelp(openTitle)},
     {id:'snd',label:'Sound: '+(save.sound?'on':'off'),go:()=>{save.sound=!save.sound;persist();openTitle();menuFocus=3;paintFocus()}},
   ],null);latchPad()}
 function openHelp(back){showMenu('How to play',`
-<p><b>The giant</b> walks slowly toward wherever you point it. Each footfall crushes whatever is under the foot, and its shadow shows where the next step lands. <b>Stomp</b> shakes the ground around both feet, <b>Smash</b> brings a fist down on a town in reach, and <b>Shake</b> rattles climbers off its body and knocks spikes loose. Every footstep leaves a lake that slows anyone wading through it, and sky crystals wash up at their edges. Stand still for five seconds and the giant turns to stone: it heals four times as fast, but climbers hold on without tiring. The giant wins when only one town is left.</p>
+<p><b>The giant</b> walks slowly toward wherever you point it. Each footfall crushes whatever is under the foot, and its shadow shows where the next step lands. <b>Stomp</b> shakes the ground around both feet, <b>Smash</b> brings a fist down on a town in reach, and <b>Shake</b> rattles climbers off its body and knocks spikes loose. Every footstep leaves a lake that slows anyone wading through it, and sky crystals wash up at their edges. Stand still for five seconds and the giant turns to stone: it heals four times as fast, but climbers hold on without tiring. The giant wins when only one of the three peoples has a settlement left.</p>
+<p><b>Settlements</b> start as small camps far apart. Gold from finished quests makes your home grow into a village, a town and then a city, with more walls and a better shop. A city sends settlers to found a new camp, usually beside one of the giant's footprint lakes. The grey stone hills are old giants that turned to stone long ago, and trolls lair around them.</p>
 <p><b>Humans</b> take quests in town, hunt beasts and gather sky crystals for gold, and spend it at the town shop. Walk up to a planted foot and <b>Climb</b>. On the body, grip drains, faster while moving. Rest on the back to regain it. When the giant tenses, hold still to brace.</p>
 <p><b>Spikes</b> bleed a body part. Cripple one leg and the giant slows. Cripple both and it falls, putting its head on the ground. Slay the head to win. <b>Cannons</b> mounted on the arms or back fire at every town except the builder's. Rival bots will arm the giant against you, so wreck their cannons.</p>
 <p class="dim">Keys: move with WASD or arrows, actions J K L H, pause Esc. Gamepad: left stick, A B X Y, Start. Touch: drag the left pad or tap the map, and use the buttons.</p>`,
@@ -615,12 +643,12 @@ function openTown(t){if(!t)return;const h=S.you;const C2=C.COST;
   const qItem=q?(q.done?{id:'q',label:'Quest complete',sub:'Reward claimed on entry',why:null,go:()=>openTown(t)}:{id:'q',label:'Quest: '+q.text,sub:(q.n+'/'+q.need)+', reward '+q.gold+' gold',go:()=>openTown(t)}):
     {id:'q',label:'Take a quest',sub:'From the town board',go:()=>{h.quest=newQuest(h);toast('New quest: '+h.quest.text);openTown(t)}};
   const buy=(id,label,cost,sub,can,fn)=>({id,label:label+' — '+cost+'g',sub,why:h.gold<cost?'Need '+(cost-h.gold)+' more gold':can,go:()=>{h.gold-=cost;fn();sfx('coin');openTown(t)}});
-  showMenu(t.name+(own?' (home)':''),`<p class="dim">Gold ${h.gold}. Level ${h.lvl}. Health ${Math.ceil(h.hp)}/${h.max}. Attack ${h.atk}. Armour ${h.def}. Town walls ${Math.ceil(t.hp)}/${t.max}.</p>`,[
+  showMenu(t.name+' · '+TIERS[t.tier].name+(own?' (home)':''),`<p class="dim">${t.tier<3?'Growth '+Math.floor(t.growth)+'/'+TIERS[t.tier].grow+(own?': finished quests make it grow. ':'. '):'A city: it sends settlers to found new camps. '}Gold ${h.gold}. Level ${h.lvl}. Health ${Math.ceil(h.hp)}/${h.max}. Attack ${h.atk}. Armour ${h.def}. Town walls ${Math.ceil(t.hp)}/${t.max}.</p>`,[
     qItem,
     buy('spike','Spike kit',C2.spike,'Drive into the giant: bleeds a part ('+h.kits.spike+' held)',h.kits.spike>=4?'Carry at most 4':null,()=>h.kits.spike++),
-    buy('cannon','Cannon kit',C2.cannon,'Mount on arm or back: shoots other towns ('+h.kits.cannon+' held)',h.kits.cannon>=2?'Carry at most 2':null,()=>h.kits.cannon++),
+    buy('cannon','Cannon kit',C2.cannon,'Mount on arm or back: shoots other towns ('+h.kits.cannon+' held)',t.tier<1?'Sold once this camp grows into a village':h.kits.cannon>=2?'Carry at most 2':null,()=>h.kits.cannon++),
     buy('sword','Sharpen sword',C2.sword,'Attack +4 (now '+h.atk+')',null,()=>h.atk+=4),
-    buy('armor','Armour plate',C2.armor,'Armour +3 (now '+h.def+')',h.def>=15?'Armour maxed':null,()=>h.def+=3),
+    buy('armor','Armour plate',C2.armor,'Armour +3 (now '+h.def+')',t.tier<2?'Sold once this grows into a town':h.def>=15?'Armour maxed':null,()=>h.def+=3),
     buy('potion','Potion',C2.potion,'Heals 60 ('+h.potions+' held)',h.potions>=5?'Carry at most 5':null,()=>h.potions++),
     {id:'leave',label:'Leave town',go:closeMenu}],closeMenu,true)}
 
@@ -642,8 +670,8 @@ function worldScale(){return view.k}
 let ground=null;const RES=8;
 function buildGround(){const M=C.MAP,n=M/RES;const c=document.createElement('canvas');c.width=c.height=n;const g=c.getContext('2d');
   const r=mulberry32(S.seed+7);g.fillStyle='#6f7f52';g.fillRect(0,0,n,n);
-  for(let i=0;i<1100;i++){const x=r()*n,y=r()*n,s=6+r()*34;g.fillStyle=['#77885a','#66754b','#827f5a','#5f7148'][i%4];g.beginPath();g.arc(x,y,s,0,7);g.fill()}
-  for(let i=0;i<300;i++){const x=r()*n,y=r()*n;if(!S.towns.every(t=>Math.hypot(t.x/RES-x,t.y/RES-y)>45))continue;g.fillStyle='#3f5634';for(let k=0;k<7;k++){g.beginPath();g.arc(x+r()*16-8,y+r()*16-8,2+r()*4,0,7);g.fill()}}
+  for(let i=0;i<3000;i++){const x=r()*n,y=r()*n,s=6+r()*34;g.fillStyle=['#77885a','#66754b','#827f5a','#5f7148'][i%4];g.beginPath();g.arc(x,y,s,0,7);g.fill()}
+  for(let i=0;i<800;i++){const x=r()*n,y=r()*n;if(!S.towns.every(t=>Math.hypot(t.x/RES-x,t.y/RES-y)>45))continue;g.fillStyle='#3f5634';for(let k=0;k<7;k++){g.beginPath();g.arc(x+r()*16-8,y+r()*16-8,2+r()*4,0,7);g.fill()}}
   g.strokeStyle='#b8a57c';g.lineWidth=4;g.globalAlpha=.75;
   for(let i=0;i<3;i++){const a=S.towns[i],b=S.towns[(i+1)%3];g.beginPath();g.moveTo(a.x/RES,a.y/RES);g.quadraticCurveTo(M/2/RES+(r()-0.5)*100,M/2/RES+(r()-0.5)*100,b.x/RES,b.y/RES);g.stroke()}
   g.globalAlpha=1;ground=c}
@@ -719,11 +747,11 @@ function render(){if(stale())fit();const c=ctx;c.setTransform(view.dpr,0,0,view.
   for(const e of S.fx){const p=e.t/e.life;c.globalAlpha=1-p;if(groundEllipse(c,e.x,e.y,e.k==='mark'?e.r*(1-p*.5):e.r*(.5+p*.5))){c.strokeStyle=e.col;c.lineWidth=3;c.stroke()}c.globalAlpha=1}
   // upright things, sorted far to near
   const items=[];const add=(d,fn)=>items.push({d,fn});
-  for(const t of S.towns){const r2=mulberry32(t.i+11);const houses=t.alive?16:10;
+  for(const t of S.towns){const r2=mulberry32(t.id+11);const houses=t.alive?TIERS[t.tier].houses:Math.max(4,TIERS[t.tier].houses>>1);
     for(let i=0;i<houses;i++){const a=r2()*6.28,dd=r2()*t.r*.8,hx=t.x+Math.cos(a)*dd,hy=t.y+Math.sin(a)*dd,w=22+r2()*14,ht=t.alive?18+r2()*16:5,roof=i%3?'#7d4a36':'#5a5f6b';
       const p=proj(hx,hy,0);if(!p)continue;add(p.d,()=>{const q=proj(hx,hy,ht),s=p.s;c.fillStyle=t.alive?'#d8ccb2':'#4e4740';c.fillRect(p.x-w*s/2,q.y,w*s,p.y-q.y);
         if(t.alive){c.fillStyle=roof;c.beginPath();c.moveTo(p.x-w*s*.6,q.y);c.lineTo(p.x,q.y-w*s*.45);c.lineTo(p.x+w*s*.6,q.y);c.fill()}})}
-    const p=proj(t.x,t.y,0);if(p&&t.alive)add(p.d-1,()=>{const top=proj(t.x,t.y,120);c.strokeStyle='#3c3127';c.lineWidth=Math.max(2,6*p.s);c.beginPath();c.moveTo(p.x,p.y);c.lineTo(p.x,top.y);c.stroke();
+    const p=proj(t.x,t.y,0);if(p&&t.alive&&t.tier>=1)add(p.d-1,()=>{const top=proj(t.x,t.y,60+t.tier*35);c.strokeStyle='#3c3127';c.lineWidth=Math.max(2,6*p.s);c.beginPath();c.moveTo(p.x,p.y);c.lineTo(p.x,top.y);c.stroke();
       c.fillStyle='#cfc3aa';c.beginPath();c.moveTo(p.x-14*p.s,p.y);c.lineTo(p.x-8*p.s,top.y+10*p.s);c.lineTo(p.x,top.y-30*p.s);c.lineTo(p.x+8*p.s,top.y+10*p.s);c.lineTo(p.x+14*p.s,p.y);c.fill();
       shapePath(c,t.shape,p.x,top.y-30*p.s-Math.max(7,16*p.s),Math.max(6,14*p.s));c.fillStyle=t.col;c.fill();c.strokeStyle='#111';c.lineWidth=1.5;c.stroke()})}
   for(const cr of S.crystals){const p=proj(cr.x,cr.y,14+Math.sin(S.t*3+cr.id)*4);if(!p||p.d>7000)continue;add(p.d,()=>{const q=Math.max(5,12*p.s);c.fillStyle='#bff4ff';c.strokeStyle='#1a3a44';c.lineWidth=1.5;c.beginPath();c.moveTo(p.x,p.y-q);c.lineTo(p.x+q*.6,p.y);c.lineTo(p.x,p.y+q);c.lineTo(p.x-q*.6,p.y);c.closePath();c.fill();c.stroke()})}
@@ -737,6 +765,8 @@ function render(){if(stale())fit();const c=ctx;c.setTransform(view.dpr,0,0,view.
       if(h.swing>0){c.strokeStyle='#fff';c.lineWidth=2;c.beginPath();c.arc(p.x,p.y-hp*.5,hp*.75,-2.4,-.7);c.stroke()}
       figure(c,p,hp,h.you?'#c0392b':T.col,T.shape,T.col,h.you);c.globalAlpha=1;
       if(h.you){bar(c,p.x,p.y-hp*1.6,36,h.hp/h.max,'#9fe08a')}})}
+  for(const m of S.marks){const p0=proj(m.x,m.y,0);if(!p0||p0.d>12000||p0.x<-view.w||p0.x>view.w*2)continue;
+    for(const b of m.boulders){const p=proj(b.x,b.y,b.z);if(!p)continue;add(p.d,()=>{c.globalAlpha=1-fogOf(p.d);stone(c,p.x,p.y,b.r*p.s,STONE.moss[0],STONE.moss[1],STONE.moss[2],b.n);c.globalAlpha=1})}}
   // the giant, boulder by boulder, plus what is built on it and who clings to it
   for(const b of giantBoulders(g)){const p=proj(b.x,b.y,b.z);if(!p)continue;const col=partStone(g,b.part);add(p.d,()=>{c.globalAlpha=(1-fogOf(p.d))*(S.role==='giant'?.78:1);stone(c,p.x,p.y,b.r*p.s,col[0],col[1],col[2],b.n);c.globalAlpha=1})}
   for(const k in g.parts){const a=partAnchor(g,k);const pp=g.parts[k];pp.builds.forEach((b,i)=>{const lat=(i-.5)*90;const p=proj(a.x+lat,a.y-60,a.z+40);if(!p)return;add(p.d-80,()=>{const s=p.s;
@@ -747,7 +777,7 @@ function render(){if(stale())fit();const c=ctx;c.setTransform(view.dpr,0,0,view.
   for(const s of S.shots){const z=1300*(1-s.t)+Math.sin(s.t*Math.PI)*350;const p=proj(s.x,s.y,z);if(!p)continue;add(p.d,()=>{c.fillStyle='#1d1d1d';c.beginPath();c.arc(p.x,p.y,Math.max(3,12*p.s),0,7);c.fill()})}
   items.sort((a,b)=>b.d-a.d);for(const it of items)it.fn();
   // labels on top
-  for(const t of S.towns){const p=proj(t.x,t.y,200);if(!p||p.d>9500)continue;label(c,t.name+(S.you&&S.you.town===t.i?' (home)':''),p.x,p.y-14,12,t.col);if(t.alive)bar(c,p.x,p.y,90,t.hp/t.max,'#9fe08a')}
+  for(const t of S.towns){const p=proj(t.x,t.y,200);if(!p||p.d>9500)continue;label(c,t.name+' · '+TIERS[t.tier].name+(S.you&&S.you.town===t.i?' (home)':''),p.x,p.y-14,12,t.col);if(t.alive)bar(c,p.x,p.y,90,t.hp/t.max,'#9fe08a')}
   if(g.fallen>0&&!g.dead){const hp=headPos(g);const p=proj(hp.x,hp.y,300);if(p)label(c,'HEAD on the ground: strike now ('+Math.ceil(g.fallen)+'s)',p.x,p.y,13,'#ffd36b')}
   if(g.rooted&&!g.dead&&S.role!=='giant'){const p=proj(g.x,g.y,2050);if(p)label(c,'Stone giant: healing, easy to climb',p.x,Math.max(64,p.y),12,'#cfe0a8')}
   if(S.you&&!S.you.dead){const ft=nearFoot(S.you);const p=proj(S.you.x,S.you.y,0);if(ft&&p)label(c,'Climb the '+PARTS[ft].name.toLowerCase(),p.x,p.y+16,12,'#ffd36b')}
@@ -757,6 +787,7 @@ function render(){if(stale())fit();const c=ctx;c.setTransform(view.dpr,0,0,view.
   if(g.wind&&g.wind.k==='shake'&&S.role==='giant')label(c,'Shaking...',view.w/2,30,15,'#ffd36b')}
 function drawMinimap(c){const s=Math.min(110,Math.min(view.w,view.h)*.26),x0=view.w-s-8,y0=8,k=s/C.MAP;
   c.fillStyle='rgba(10,14,10,.8)';c.fillRect(x0-2,y0-2,s+4,s+4);c.drawImage(ground,x0,y0,s,s);
+  c.fillStyle='#7d7f66';for(const m of S.marks){c.beginPath();c.arc(x0+m.x*k,y0+m.y*k,3.5,0,7);c.fill()}
   c.fillStyle='#4f8fb0';for(const pd of S.ponds){c.fillRect(x0+pd.x*k-1.5,y0+pd.y*k-1.5,3,3)}
   for(const t of S.towns){shapePath(c,t.shape,x0+t.x*k,y0+t.y*k,6);c.fillStyle=t.alive?t.col:'#555';c.fill();c.strokeStyle='#111';c.lineWidth=1;c.stroke()}
   const g=S.g;c.fillStyle=g.rooted?'#87896c':'#5c544a';c.strokeStyle='#ffd36b';c.lineWidth=2;c.beginPath();c.arc(x0+g.x*k,y0+g.y*k,7,0,7);c.fill();c.stroke();
@@ -809,9 +840,9 @@ function climbPick(sx,sy){if(!climbL)return null;let best=null,bd=climbL.size*2;
 // ---------- hud ----------
 const hudTxt=document.getElementById('hudTxt'),hudQ=document.getElementById('hudQ');let hudSig='';
 function paintHud(){if(!S)return;let a,b;
-  if(S.role==='giant'){const g=S.g,P=g.parts;const live=S.towns.filter(t=>t.alive).length;
-    a=`<b>Giant</b> Towns left <b>${live}</b> · Legs ${Math.ceil(P.lleg.hp)}/${Math.ceil(P.rleg.hp)} · Head ${Math.ceil(P.head.hp)} · Climbers ${S.humans.filter(h=>h.mode==='climb').length}`;
-    b=g.fallen>0?'You have fallen! Survive until you rise.':g.rooted?'You are stone: healing four times as fast, but climbers hold on easily. Move to wake.':'Point where to walk. Stand still for '+C.ROOT_TIME+'s to turn to stone and heal. Crush two of the three towns.'}
+  if(S.role==='giant'){const g=S.g,P=g.parts;const live=S.towns.filter(t=>t.alive).length,peoples=[0,1,2].filter(f=>settlements(f).length).length;
+    a=`<b>Giant</b> Peoples left <b>${peoples}</b> · Settlements ${live} · Legs ${Math.ceil(P.lleg.hp)}/${Math.ceil(P.rleg.hp)} · Head ${Math.ceil(P.head.hp)} · Climbers ${S.humans.filter(h=>h.mode==='climb').length}`;
+    b=g.fallen>0?'You have fallen! Survive until you rise.':g.rooted?'You are stone: healing four times as fast, but climbers hold on easily. Move to wake.':'Wipe out two of the three peoples before their camps grow into cities. Stand still for '+C.ROOT_TIME+'s to turn to stone and heal.'}
   else{const h=S.you;a=`<b>${TOWNS[h.town].name}</b> Lv <b>${h.lvl}</b> · HP <b>${Math.ceil(h.hp)}/${h.max}</b> · Gold <b>${h.gold}</b> · Spikes ${h.kits.spike} · Cannons ${h.kits.cannon}`;
     b=h.quest?('Quest: '+h.quest.text+' '+Math.min(h.quest.n,h.quest.need)+'/'+h.quest.need+(h.quest.done?' done, return to town':'')):'No quest: visit a town and open Town to take one.'}
   const sig=a+b;if(sig!==hudSig){hudSig=sig;hudTxt.innerHTML=a;hudQ.textContent=b}}
@@ -829,7 +860,7 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min(.1,(now-last)
 fit();openTitle();requestAnimationFrame(frame);
 // test hook
 window.__giant={get S(){return S},start,step,C,botHuman,humanAct,
-  autoplay(role,seed,secs){newGame(role,seed);buildGround();const you=S.you;if(you)you.you=false,you.role='warden';let t=0;while(!S.over&&t<secs){step(C.DT);t+=C.DT}return{t:S.t,over:S.over,towns:S.towns.map(t=>Math.round(t.hp)),parts:Object.fromEntries(Object.entries(S.g.parts).map(([k,p])=>[k,Math.round(p.hp)])),lv:S.humans.map(h=>h.lvl)}}};
+  autoplay(role,seed,secs){newGame(role,seed);buildGround();const you=S.you;if(you)you.you=false,you.role='warden';let t=0;while(!S.over&&t<secs){step(C.DT);t+=C.DT}return{t:S.t,over:S.over,towns:S.towns.map(t=>t.name+':'+t.tier+':'+(t.alive?Math.round(t.hp):'X')),parts:Object.fromEntries(Object.entries(S.g.parts).map(([k,p])=>[k,Math.round(p.hp)])),lv:S.humans.map(h=>h.lvl)}}};
 </script>
 </body>
 </html>
