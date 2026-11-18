@@ -56,7 +56,7 @@ body.touch #btns{grid-template-columns:repeat(2,minmax(0,1fr))}
   <div id="stage">
     <canvas id="cv"></canvas>
     <div id="toast"></div>
-    <div id="build">build 2026-11-18e</div>
+    <div id="build">build 2026-11-18f</div>
     <div class="ov on" id="ovTitle"><div class="card">
       <h1>Colossus Roams</h1>
       <p class="dim">A giant two thousand feet tall walks the land. Below it, three towns go about their quests. Some will arm it against their rivals. Some will cut it down.</p>
@@ -82,7 +82,7 @@ const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 // ---------- constants ----------
 const C={
   MAP:9000, DT:1/30, MONSTERS:110, CRYSTALS:80, MARKS:7, GROW_PASSIVE:0.4, OUTPOSTS:2,
-  G_SPEED:60, G_STEP:2.6, FOOT_R:95, CRUSH_DMG:120, CRUSH_TOWN:35,
+  G_SPEED:60, G_ACCEL:9, G_BRAKE:12, G_PIVOT:.22, G_LAT:4.5, G_STEP:2.6, FOOT_R:95, CRUSH_DMG:120, CRUSH_TOWN:35,
   STOMP_CD:8, STOMP_R:230, STOMP_DMG:55, STOMP_TOWN:70, STOMP_WIND:1.0,
   SMASH_CD:10, SMASH_REACH:520, SMASH_R:170, SMASH_DMG:90, SMASH_TOWN:150, SMASH_WIND:1.3,
   SHAKE_CD:11, SHAKE_WIND:1.1, SHAKE_GRIP:55, SHAKE_GRIP_BRACED:18, SHAKE_SPIKE:0.35,
@@ -146,7 +146,7 @@ function newGame(role,seed){
   const parts={};for(const k in PARTS)parts[k]={hp:PARTS[k].max,max:PARTS[k].max,crip:false,builds:[]};
   const g={x:cx,y:cy+150,ang:-Math.PI/2,tx:null,ty:null,parts,fallen:0,dead:false,
     feet:[{x:cx-80,y:cy+150,air:0,lx:0,ly:0},{x:cx+80,y:cy+150,air:0,lx:0,ly:0}],stepT:0,active:0,
-    cd:{stomp:2,smash:3,shake:4},wind:null,still:0,rooted:false,botT:0,target:null,kills:0};
+    cd:{stomp:2,smash:3,shake:4},wind:null,v:0,still:0,rooted:false,botT:0,target:null,kills:0};
   S={role,seed,t:0,towns,g,ponds:[],marks:[],townSeq:3,founded:[0,0,0],humans:[],monsters:[],crystals:[],shots:[],fx:[],msgs:[],over:null,nextId:1,camZoom:1};
   const youTown=0;
   // humans
@@ -203,6 +203,17 @@ function announce(text){S.msgs.push({text,t:S.t});toast(text)}
 function fwd(g){return{x:Math.cos(g.ang),y:Math.sin(g.ang)}}
 function headPos(g){const f=fwd(g);return g.fallen>0?{x:g.x+f.x*820,y:g.y+f.y*820}:{x:g.x+f.x*40,y:g.y+f.y*40}}
 function legOk(g,k){return !g.parts[k].crip}
+// The giant has momentum: it gathers speed over several seconds, needs room to stop, and the faster it walks
+// the wider it turns (turn rate is capped by sideways acceleration over speed). Pure, so the preview reuses it.
+function giantMotion(m,dt,tx,ty,vmax){let want=0,da=0;
+  if(tx!=null){const dx=tx-m.x,dy=ty-m.y,d=Math.hypot(dx,dy);da=((Math.atan2(dy,dx)-m.ang+Math.PI*3)%(Math.PI*2))-Math.PI;
+    const vArrive=Math.sqrt(2*C.G_BRAKE*Math.max(0,d-40));
+    const sa=Math.abs(Math.sin(da)),vTurn=Math.abs(da)>Math.PI/2?0:sa<.01?vmax:Math.sqrt(C.G_LAT*d/(2*sa));
+    want=Math.min(vmax,vArrive,vTurn)}
+  if(m.v<want)m.v=Math.min(want,m.v+C.G_ACCEL*dt);else m.v=Math.max(want,m.v-C.G_BRAKE*dt);
+  const wmax=Math.min(C.G_PIVOT,C.G_LAT/Math.max(m.v,1));m.ang+=clamp(da,-wmax*dt,wmax*dt);
+  m.x=clamp(m.x+Math.cos(m.ang)*m.v*dt,200,C.MAP-200);m.y=clamp(m.y+Math.sin(m.ang)*m.v*dt,200,C.MAP-200)}
+function giantPath(g,secs){const m={x:g.x,y:g.y,ang:g.ang,v:g.v},pts=[],vmax=giantSpeed(g);for(let t=0;t<secs;t+=.5){giantMotion(m,.5,g.tx,g.ty,vmax);pts.push({x:m.x,y:m.y})}return pts}
 function giantSpeed(g){let s=C.G_SPEED;if(g.parts.lleg.crip)s*=.5;if(g.parts.rleg.crip)s*=.5;return s}
 function armReady(g){return !g.parts.larm.crip||!g.parts.rarm.crip}
 function canGiant(k){const g=S.g;
@@ -252,15 +263,14 @@ function stepGiant(dt){const g=S.g;if(g.dead)return;
     if(sp)damagePart(k,sp*C.SPIKE_DPS*dt,null);
     if(g.fallen<=0&&p.hp<p.max)p.hp=Math.min(p.max,p.hp+C.REGEN*(g.rooted?C.ROOT_REGEN:1)*dt);
     if(p.crip&&p.hp>=p.max*.4&&k!=='lleg'&&k!=='rleg')p.crip=false}
-  if(g.fallen>0){g.fallen-=dt;if(g.fallen<=0){g.fallen=0;for(const k of['lleg','rleg']){const p=g.parts[k];p.hp=Math.max(p.hp,p.max*.45);p.crip=false}
+  if(g.fallen>0){g.v=0;g.fallen-=dt;if(g.fallen<=0){g.fallen=0;for(const k of['lleg','rleg']){const p=g.parts[k];p.hp=Math.max(p.hp,p.max*.45);p.crip=false}
       announce('The giant rises again!');
       for(const h of S.humans)if(h.mode==='climb'&&h.part==='head'){}}
     return}
   // move
-  let moving=false;
-  if(g.tx!=null){const dx=g.tx-g.x,dy=g.ty-g.y,d=Math.hypot(dx,dy);
-    if(d>40){const want=Math.atan2(dy,dx);let da=((want-g.ang+Math.PI*3)%(Math.PI*2))-Math.PI;g.ang+=clamp(da,-.35*dt,.35*dt);
-      const sp=giantSpeed(g)*(Math.abs(da)>1.2?.35:1);g.x+=Math.cos(g.ang)*sp*dt;g.y+=Math.sin(g.ang)*sp*dt;moving=true}else{g.tx=g.ty=null}}
+  if(g.tx!=null&&Math.hypot(g.tx-g.x,g.ty-g.y)<60)g.tx=g.ty=null;
+  giantMotion(g,dt,g.tx,g.ty,giantSpeed(g));
+  const moving=g.v>1;
   g.x=clamp(g.x,200,C.MAP-200);g.y=clamp(g.y,200,C.MAP-200);
   // standing still long enough turns the giant to stone: it heals fast but is easy to climb
   if(!moving&&!g.wind&&!g.feet.some(ft=>ft.air>0)){g.still+=dt;if(!g.rooted&&g.still>=C.ROOT_TIME){g.rooted=true;announce('The giant has turned to stone. It heals fast, and climbers hold on easily.')}}
@@ -274,7 +284,7 @@ function stepGiant(dt){const g=S.g;if(g.dead)return;
     // pick foot farthest behind its ideal spot
     let worst=-1,wd=0;
     g.feet.forEach((ft,i)=>{const s=i?1:-1;const ix=g.x+side.x*s*85,iy=g.y+side.y*s*85;const d=Math.hypot(ft.x-ix,ft.y-iy);if(d>wd){wd=d;worst=i}});
-    if(wd>60||(moving&&wd>20)){const ft=g.feet[worst],s=worst?1:-1,lead=moving?giantSpeed(g)*C.G_STEP*.9:0;
+    if(wd>60||(moving&&wd>20)){const ft=g.feet[worst],s=worst?1:-1,lead=moving?g.v*C.G_STEP*.9:0;
       ft.sx=ft.x;ft.sy=ft.y;ft.lx=g.x+f.x*lead+side.x*s*85;ft.ly=g.y+f.y*lead+side.y*s*85;ft.dur=C.G_STEP;ft.air=C.G_STEP;
       for(const h of S.humans)if(h.mode==='climb'&&h.part===(worst?'rleg':'lleg')){h.grip-=4}}
   }
@@ -643,7 +653,7 @@ function openTitle(){S=null;ovMenu.classList.remove('on');ovTitle.classList.add(
     {id:'snd',label:'Sound: '+(save.sound?'on':'off'),go:()=>{save.sound=!save.sound;persist();openTitle();menuFocus=3;paintFocus()}},
   ],null);latchPad()}
 function openHelp(back){showMenu('How to play',`
-<p><b>The giant</b> walks slowly toward wherever you point it. Each footfall crushes whatever is under the foot, and its shadow shows where the next step lands. <b>Stomp</b> shakes the ground around both feet, <b>Smash</b> brings a fist down on a town in reach, and <b>Shake</b> rattles climbers off its body and knocks spikes loose. Every footstep leaves a lake that slows anyone wading through it, and sky crystals wash up at their edges. Stand still for five seconds and the giant turns to stone: it heals four times as fast, but climbers hold on without tiring. The giant wins when only one of the three peoples has a settlement left.</p>
+<p><b>The giant</b> walks slowly toward wherever you point it. Each footfall crushes whatever is under the foot, and its shadow shows where the next step lands. <b>Stomp</b> shakes the ground around both feet, <b>Smash</b> brings a fist down on a town in reach, and <b>Shake</b> rattles climbers off its body and knocks spikes loose. The giant is heavy: it takes seconds to reach full stride and to stop, and the faster it walks the wider it turns, so slow down for a tight turn. The dotted trail shows where it will walk. Every footstep leaves a lake that slows anyone wading through it, and sky crystals wash up at their edges. Stand still for five seconds and the giant turns to stone: it heals four times as fast, but climbers hold on without tiring. The giant wins when only one of the three peoples has a settlement left.</p>
 <p><b>Settlements</b> start as small camps far apart. Gold from finished quests makes your home grow into a village, a town and then a city, with more walls and a better shop. A city sends settlers to found a new camp, usually beside one of the giant's footprint lakes. The grey stone hills are old giants that turned to stone long ago, and trolls lair around them.</p>
 <p><b>Humans</b> take quests in town, hunt beasts and gather sky crystals for gold, and spend it at the town shop. Walk up to a planted foot and <b>Climb</b>. On the body, grip drains, faster while moving. Rest on the back to regain it. When the giant tenses, hold still to brace.</p>
 <p><b>Spikes</b> bleed a body part. Cripple one leg and the giant slows. Cripple both and it falls, putting its head on the ground. Slay the head to win. <b>Cannons</b> mounted on the arms or back fire at every town except the builder's. Rival bots will arm the giant against you, so wreck their cannons.</p>
@@ -813,6 +823,7 @@ function render(){if(stale())fit();const c=ctx;c.setTransform(view.dpr,0,0,view.
   if(g.fallen>0&&!g.dead){const hp=headPos(g);const p=proj(hp.x,hp.y,300);if(p)label(c,'HEAD on the ground: strike now ('+Math.ceil(g.fallen)+'s)',p.x,p.y,13,'#ffd36b')}
   if(g.rooted&&!g.dead&&S.role!=='giant'){const p=proj(g.x,g.y,2050);if(p)label(c,'Stone giant: healing, easy to climb',p.x,Math.max(64,p.y),12,'#cfe0a8')}
   if(S.you&&!S.you.dead){const ft=nearFoot(S.you);const p=proj(S.you.x,S.you.y,0);if(ft&&p)label(c,'Climb the '+PARTS[ft].name.toLowerCase(),p.x,p.y+16,12,'#ffd36b')}
+  if(S.role==='giant'&&!g.fallen&&(g.tx!=null||g.v>1)){c.fillStyle='rgba(255,211,107,.85)';for(const q of giantPath(g,12)){const p=proj(q.x,q.y,0);if(p){c.beginPath();c.arc(p.x,p.y,Math.max(2,10*p.s),0,7);c.fill()}}}
   if(S.role==='giant'&&g.tx!=null){const p=proj(g.tx,g.ty,0);if(p){c.strokeStyle='rgba(255,211,107,.9)';c.lineWidth=2;c.beginPath();c.moveTo(p.x-8,p.y-8);c.lineTo(p.x+8,p.y+8);c.moveTo(p.x+8,p.y-8);c.lineTo(p.x-8,p.y+8);c.stroke()}}
   if(S.you&&S.you.dead){label(c,'Returning to town in '+Math.ceil(S.you.dead)+'s',view.w/2,view.h/2,16,'#ff8a7a')}
   drawMinimap(c);drawBodyPanel(c,S.role==='giant');
@@ -873,7 +884,7 @@ function climbPick(sx,sy){if(!climbL)return null;let best=null,bd=climbL.size*2;
 const hudTxt=document.getElementById('hudTxt'),hudQ=document.getElementById('hudQ');let hudSig='';
 function paintHud(){if(!S)return;let a,b;
   if(S.role==='giant'){const g=S.g,P=g.parts;const live=S.towns.filter(t=>t.alive).length,peoples=[0,1,2].filter(f=>settlements(f).length).length;
-    a=`<b>Giant</b> Peoples left <b>${peoples}</b> · Settlements ${live} · Legs ${Math.ceil(P.lleg.hp)}/${Math.ceil(P.rleg.hp)} · Head ${Math.ceil(P.head.hp)} · Climbers ${S.humans.filter(h=>h.mode==='climb').length}`;
+    a=`<b>Giant</b> Stride <b>${Math.round(g.v/C.G_SPEED*100)}%</b> · Peoples left <b>${peoples}</b> · Settlements ${live} · Legs ${Math.ceil(P.lleg.hp)}/${Math.ceil(P.rleg.hp)} · Head ${Math.ceil(P.head.hp)} · Climbers ${S.humans.filter(h=>h.mode==='climb').length}`;
     b=g.fallen>0?'You have fallen! Survive until you rise.':g.rooted?'You are stone: healing four times as fast, but climbers hold on easily. Move to wake.':'Wipe out two of the three peoples before their camps grow into cities. Stand still for '+C.ROOT_TIME+'s to turn to stone and heal.'}
   else{const h=S.you;a=`<b>${TOWNS[h.town].name}</b> Lv <b>${h.lvl}</b> · HP <b>${Math.ceil(h.hp)}/${h.max}</b> · Gold <b>${h.gold}</b> · Spikes ${h.kits.spike} · Cannons ${h.kits.cannon}`;
     b=h.quest?('Quest: '+h.quest.text+' '+Math.min(h.quest.n,h.quest.need)+'/'+h.quest.need+(h.quest.done?' done, return to town':'')):'No quest: visit a town and open Town to take one.'}
