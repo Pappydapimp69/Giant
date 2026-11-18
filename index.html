@@ -56,7 +56,7 @@ body.touch #btns{grid-template-columns:repeat(2,minmax(0,1fr))}
   <div id="stage">
     <canvas id="cv"></canvas>
     <div id="toast"></div>
-    <div id="build">build 2026-11-18d</div>
+    <div id="build">build 2026-11-18e</div>
     <div class="ov on" id="ovTitle"><div class="card">
       <h1>Colossus Roams</h1>
       <p class="dim">A giant two thousand feet tall walks the land. Below it, three towns go about their quests. Some will arm it against their rivals. Some will cut it down.</p>
@@ -66,7 +66,7 @@ body.touch #btns{grid-template-columns:repeat(2,minmax(0,1fr))}
     <div class="ov" id="ovMenu"><div class="card"><h2 id="menuH"></h2><div id="menuBody"></div><div id="menuBtns"></div></div></div>
   </div>
   <div id="pad">
-    <div id="stick"><span>Drag to move<br>or tap the map</span></div>
+    <div id="stick"><span>Drag here to move</span></div>
     <div id="btns"></div>
   </div>
 </div>
@@ -495,10 +495,10 @@ function trackGiantTarget(){const g=S.g;if(g.tx==null)return;let b=null,bd=1e9;f
 
 // ---------- game step ----------
 function step(dt){if(S.over)return;S.t+=dt;sndBudget=Math.max(0,sndBudget-dt*20);
-  const mv=readMove();
-  if(S.role==='giant'){if(mv.x||mv.y){const g=S.g;g.tx=g.x+mv.x*400;g.ty=g.y+mv.y*400}trackGiantTarget()}else botGiant(dt);
+  const mv=readMove(),wm=camRelative(mv);
+  if(S.role==='giant'){if(mv.x||mv.y){const g=S.g;g.tx=g.x+wm.x*400;g.ty=g.y+wm.y*400}trackGiantTarget()}else botGiant(dt);
   for(const h of S.humans){let m={x:0,y:0};
-    if(h.you){if(h.mode==='climb'){if(mv.x||mv.y){if(!climbLatch){climbLatch=true;climbMove(h,{x:mv.x,y:-mv.y})}}else climbLatch=false}else m=mv}
+    if(h.you){if(h.mode==='climb'){if(mv.x||mv.y){if(!climbLatch){climbLatch=true;climbMove(h,{x:mv.x,y:-mv.y})}}else climbLatch=false}else m=wm}
     else m=botHuman(h,dt);
     stepHuman(h,dt,m)}
   // player actions
@@ -521,19 +521,24 @@ function checkEnd(){const live=[0,1,2].filter(f=>settlements(f).length);let over
 
 // ---------- input ----------
 const keys=new Set();let device='keys';const presses=[];
-const KEYMAP={KeyJ:'A',Space:'A',KeyK:'B',KeyL:'X',KeyH:'Y',KeyE:'A',KeyQ:'B',KeyR:'X',KeyF:'Y'};
+const KEYMAP={KeyJ:'A',Space:'A',KeyK:'B',KeyL:'X',KeyH:'Y'};
 addEventListener('keydown',e=>{if(e.code==='F11'||e.ctrlKey||e.metaKey)return;device='keys';unlockAudio();
   if(menuOpen()){if(!e.repeat)menuKey(e.code);e.preventDefault();return}
   if((e.code==='Escape'||e.code==='KeyP')&&!e.repeat){openPause();e.preventDefault();return}
+  if(e.code==='KeyC'&&!e.repeat)camReset();
   if(!keys.has(e.code)&&KEYMAP[e.code])presses.push(KEYMAP[e.code]);keys.add(e.code);
   if(/Arrow|Space/.test(e.code))e.preventDefault()});
 addEventListener('keyup',e=>keys.delete(e.code));
 function releaseAll(){keys.clear();stick.on=false;stick.x=stick.y=0;padHeld.clear()}
 addEventListener('blur',()=>{releaseAll();if(S&&!S.over&&!menuOpen())openPause()});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseAll();if(S&&!S.over&&!menuOpen())openPause()}});
+function stepCamera(dt){if(!S||menuOpen())return;let yaw=0,pitch=0,zoom=0;
+  if(keys.has('KeyQ'))yaw-=1;if(keys.has('KeyE'))yaw+=1;if(keys.has('KeyR'))zoom-=1;if(keys.has('KeyF'))zoom+=1;if(keys.has('KeyT'))pitch-=1;if(keys.has('KeyG'))pitch+=1;
+  yaw+=padCam.x;pitch+=padCam.y;zoom+=padCam.z;
+  if(yaw||pitch||zoom)camTurn(yaw*CAM.YAW_RATE*dt,pitch*CAM.PITCH_RATE*dt,Math.exp(zoom*CAM.ZOOM_RATE*dt))}
 function takePresses(){const p=presses.splice(0);return p}
 function stickInput(ax,ay,dead){const m=Math.hypot(ax,ay);if(m<=dead)return[0,0];const k=Math.min(1,(m-dead)/(1-dead))/m;return[ax*k,ay*k]}
-let padVec={x:0,y:0};const padHeld=new Set();let padLatch=new Set();
+let padVec={x:0,y:0},padCam={x:0,y:0,z:0};const padHeld=new Set();let padLatch=new Set();
 function readMove(){let x=0,y=0;
   if(keys.has('KeyA')||keys.has('ArrowLeft'))x-=1;if(keys.has('KeyD')||keys.has('ArrowRight'))x+=1;
   if(keys.has('KeyW')||keys.has('ArrowUp'))y-=1;if(keys.has('KeyS')||keys.has('ArrowDown'))y+=1;
@@ -548,6 +553,9 @@ function pollPad(){const pads=navigator.getGamepads?navigator.getGamepads():[];l
     const a0=gp.axes[0]||0,a1=gp.axes[1]||0;if(Math.hypot(a0,a1)>Math.hypot(ax,ay)){ax=a0;ay=a1}
     gp.buttons.forEach((b,i)=>{if(b.pressed)now.add(i)})}
   const [sx,sy]=stickInput(ax,ay,.2);padVec={x:sx,y:sy};
+  let rx=0,ry=0,zin=0,zout=0;for(const gp of pads){if(!gp)continue;const a2=gp.axes[2]||0,a3=gp.axes[3]||0;if(Math.hypot(a2,a3)>Math.hypot(rx,ry)){rx=a2;ry=a3}
+    zin=Math.max(zin,gp.buttons[7]?.value||0);zout=Math.max(zout,gp.buttons[6]?.value||0)}
+  const [crx,cry]=stickInput(rx,ry,.2);padCam={x:crx,y:cry,z:zout-zin};if(crx||cry||zin>.1||zout>.1)device='pad';
   if(now.size||sx||sy)device='pad';
   const edge=[];for(const i of now)if(!padHeld.has(i)&&!padLatch.has(i))edge.push(i);
   for(const i of padLatch)if(!now.has(i))padLatch.delete(i);
@@ -556,6 +564,7 @@ function pollPad(){const pads=navigator.getGamepads?navigator.getGamepads():[];l
   for(const i of edge){unlockAudio();
     if(menuOpen()){const m={12:'ArrowUp',13:'ArrowDown',14:'ArrowLeft',15:'ArrowRight',0:'Enter',1:'Escape',9:'Escape'}[i];if(m)menuKey(m);continue}
     if(i===9||i===8){openPause();continue}
+    if(i===11){camReset();continue}
     const s={0:'A',1:'B',2:'X',3:'Y'}[i];if(s)presses.push(s)}}
 
 // touch stick and taps
@@ -568,9 +577,18 @@ stEl.addEventListener('pointermove',e=>{if(!stick.on||e.pointerId!==stick.id)ret
 const endStick=e=>{if(e.pointerId===stick.id){stick.on=false;stick.x=stick.y=0}};
 stEl.addEventListener('pointerup',endStick);stEl.addEventListener('pointercancel',endStick);
 const cv=document.getElementById('cv');
-let tapDown=null;
-cv.addEventListener('pointerdown',e=>{tapDown={x:e.clientX,y:e.clientY,t:performance.now()}});
-cv.addEventListener('pointerup',e=>{if(!tapDown||!S||S.over||menuOpen())return;const moved=Math.hypot(e.clientX-tapDown.x,e.clientY-tapDown.y);tapDown=null;if(moved>18)return;
+let tapDown=null;const ptrs=new Map();let pinch=null;
+function pinchState(){const [a,b]=[...ptrs.values()];return{d:Math.hypot(a.x-b.x,a.y-b.y),ang:Math.atan2(b.y-a.y,b.x-a.x)}}
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture?.(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(ptrs.size===1)tapDown={x:e.clientX,y:e.clientY,t:performance.now(),moved:0};else{tapDown=null;if(ptrs.size===2)pinch=pinchState()}});
+cv.addEventListener('pointermove',e=>{const p=ptrs.get(e.pointerId);if(!p)return;const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;
+  if(!S||S.over||menuOpen()||(S.role==='human'&&S.you.mode==='climb'))return;
+  if(ptrs.size===2&&pinch){const n=pinchState();let da=n.ang-pinch.ang;if(da>Math.PI)da-=Math.PI*2;if(da<-Math.PI)da+=Math.PI*2;camTurn(-da,0,pinch.d/Math.max(20,n.d));pinch=n;return}
+  if(ptrs.size===1&&tapDown){tapDown.moved+=Math.hypot(dx,dy);if(tapDown.moved>12)camTurn(-dx*.006,dy*.004,1)}});
+const ptrEnd=e=>{ptrs.delete(e.pointerId);if(ptrs.size<2)pinch=null};
+cv.addEventListener('pointercancel',e=>{ptrEnd(e);tapDown=null});
+cv.addEventListener('wheel',e=>{e.preventDefault();camTurn(0,0,Math.exp(e.deltaY*.0012))},{passive:false});
+cv.addEventListener('pointerup',e=>{ptrEnd(e);if(!tapDown||!S||S.over||menuOpen())return;const moved=tapDown.moved;tapDown=null;if(moved>12)return;
   const r=cv.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;
   if(S.role==='human'&&S.you.mode==='climb'){const k=climbPick(sx,sy);if(k&&ADJ[S.you.part].includes(k)&&!S.you.to){S.you.to=k;S.you.prog=0;S.you.lastAct=S.t}else if(k===S.you.part)presses.push('A');return}
   const w=screenToWorld(sx,sy);
@@ -629,10 +647,11 @@ function openHelp(back){showMenu('How to play',`
 <p><b>Settlements</b> start as small camps far apart. Gold from finished quests makes your home grow into a village, a town and then a city, with more walls and a better shop. A city sends settlers to found a new camp, usually beside one of the giant's footprint lakes. The grey stone hills are old giants that turned to stone long ago, and trolls lair around them.</p>
 <p><b>Humans</b> take quests in town, hunt beasts and gather sky crystals for gold, and spend it at the town shop. Walk up to a planted foot and <b>Climb</b>. On the body, grip drains, faster while moving. Rest on the back to regain it. When the giant tenses, hold still to brace.</p>
 <p><b>Spikes</b> bleed a body part. Cripple one leg and the giant slows. Cripple both and it falls, putting its head on the ground. Slay the head to win. <b>Cannons</b> mounted on the arms or back fire at every town except the builder's. Rival bots will arm the giant against you, so wreck their cannons.</p>
+<p class="dim">Camera: drag the view to turn and tilt, pinch or scroll to zoom. Keys Q and E turn, R and F zoom, T and G tilt, C resets. Gamepad right stick turns and tilts, triggers zoom, right stick click resets. Movement always follows the camera.</p>
 <p class="dim">Keys: move with WASD or arrows, actions J K L H, pause Esc. Gamepad: left stick, A B X Y, Start. Touch: drag the left pad or tap the map, and use the buttons.</p>`,
   [{id:'back',label:'Back',go:back}],back)}
 function openPause(){if(!S||S.over)return;showMenu('Paused','',[
-  {id:'r',label:'Resume',go:closeMenu},{id:'help',label:'How to play',go:()=>openHelp(openPause)},
+  {id:'r',label:'Resume',go:closeMenu},{id:'cam',label:'Reset camera',go:()=>{camReset();closeMenu()}},{id:'help',label:'How to play',go:()=>openHelp(openPause)},
   {id:'snd',label:'Sound: '+(save.sound?'on':'off'),go:()=>{save.sound=!save.sound;persist();openPause()}},
   {id:'restart',label:'Restart',sub:'New map, same side',go:()=>start(S.role)},{id:'quit',label:'Quit to title',go:openTitle}],closeMenu,true)}
 function openEnd(){const o=S.over;showMenu(o.win?'Victory':'Defeat',`<p>${o.text}</p><p class="dim">${S.role==='giant'?'Towns destroyed: '+S.g.kills:'Level '+S.you.lvl+', '+S.you.gold+' gold'}. Time ${Math.floor(S.t/60)}m ${Math.floor(S.t%60)}s.</p>`,
@@ -660,11 +679,23 @@ function fit(){const r=cv.getBoundingClientRect();view.dpr=devicePixelRatio||1;v
 function stale(){const r=cv.getBoundingClientRect();return (devicePixelRatio||1)!==view.dpr||r.width!==view.w||r.height!==view.h}
 function shakeCam(a){if(!save.reduced)view.shake=Math.max(view.shake,a)}
 function near(p){if(!S)return false;return Math.hypot(p.x-view.cx,p.y-view.cy)<1600}
-function camSpan(){return S.role==='giant'?2300*S.camZoom:780}
-function setCam(){const k=Math.min(view.w,view.h)/camSpan();view.k=k;view.D=S.role==='giant'?1700*S.camZoom:1100;view.f=k*view.D;
-  view.hz=view.h*(S.role==='giant'?.16:.2);view.Hc=(view.h*.7-view.hz)/k;view.eyeY=view.cy+view.D}
-function proj(x,y,z){const d=view.eyeY-y;if(d<60)return null;const s=view.f/d;return{x:view.w/2+(x-view.cx)*s+view.ox,y:view.hz+(view.Hc-z)*s+view.oy,s,d}}
-function screenToWorld(sx,sy){const y=Math.max(sy,view.hz+4);const d=Math.min(9000,view.Hc*view.f/(y-view.hz));return{x:view.cx+(sx-view.w/2)*d/view.f,y:view.eyeY-d}}
+// the player's camera: yaw turns around the focus, zoom scales the view, pitch tilts toward looking straight down
+const cam={yaw:0,zoom:1,pitch:.12};
+const CAM={ZOOM_MIN:.45,ZOOM_MAX:2.6,YAW_RATE:1.8,PITCH_RATE:.9,ZOOM_RATE:1.2};
+function camReset(){cam.yaw=0;cam.zoom=1;cam.pitch=.12}
+function camTurn(dyaw,dpitch,zoomMul){cam.yaw=(cam.yaw+dyaw)%(Math.PI*2);cam.pitch=clamp(cam.pitch+dpitch,0,1);cam.zoom=clamp(cam.zoom*zoomMul,CAM.ZOOM_MIN,CAM.ZOOM_MAX)}
+function camSpan(){return(S.role==='giant'?2300*S.camZoom:780)*cam.zoom}
+function setCam(){const k=Math.min(view.w,view.h)/camSpan();view.k=k;view.D=(S.role==='giant'?1700*S.camZoom:1100)*cam.zoom;view.f=k*view.D;
+  view.F={x:Math.sin(cam.yaw),y:-Math.cos(cam.yaw)};view.R={x:Math.cos(cam.yaw),y:Math.sin(cam.yaw)};
+  view.hz=view.h*((S.role==='giant'?.16:.2)-cam.pitch*.55);view.Hc=(view.h*.7-view.hz)/k}
+function proj(x,y,z){const dx=x-view.cx,dy=y-view.cy;const d=view.D+dx*view.F.x+dy*view.F.y;if(d<60)return null;const s=view.f/d;
+  return{x:view.w/2+(dx*view.R.x+dy*view.R.y)*s+view.ox,y:view.hz+(view.Hc-z)*s+view.oy,s,d}}
+function screenToWorld(sx,sy){const y=Math.max(sy,view.hz+4);const d=Math.min(9000,view.Hc*view.f/(y-view.hz));const along=d-view.D,lat=(sx-view.w/2)*d/view.f;
+  return{x:view.cx+view.F.x*along+view.R.x*lat,y:view.cy+view.F.y*along+view.R.y*lat}}
+// screen-space stick (right, down) to world direction, so up on the stick is always into the screen
+function camRelative(m){if(!view.F)return m;return{x:view.R.x*m.x-view.F.x*m.y,y:view.R.y*m.x-view.F.y*m.y}}
+// stone between the camera and the player turns see-through, so a hill or a leg never hides who you are
+function nearFade(p){return p.d<view.D*.92?.32:1}
 function fogOf(d){return clamp((d-2600)/7000,0,.82)}
 function worldScale(){return view.k}
 let ground=null;const RES=8;
@@ -717,13 +748,14 @@ function figure(c,p,hpx,cloak,shape,badge,you){const w=hpx*.42;c.fillStyle='rgba
   c.fillStyle='#e7d3b8';c.beginPath();c.arc(p.x,p.y-hpx*.85,hpx*.15,0,7);c.fill();c.stroke();
   shapePath(c,shape,p.x,p.y-hpx*1.25,Math.max(3,hpx*.14));c.fillStyle=badge;c.fill();c.strokeStyle='#111';c.lineWidth=1;c.stroke()}
 
-function drawSky(c){const hz=view.hz;const gr=c.createLinearGradient(0,0,0,hz+2);gr.addColorStop(0,'#6f8396');gr.addColorStop(.7,'#b9b3a3');gr.addColorStop(1,'#dcc9a6');c.fillStyle=gr;c.fillRect(0,0,view.w,hz+2);
-  const r=mulberry32(99);c.fillStyle='rgba(240,236,226,.55)';for(let i=0;i<9;i++){const x=((r()*view.w*2-(S.t*4+view.cx*.05))%(view.w*1.6)+view.w*1.6)%(view.w*1.6)-view.w*.3,y=r()*hz*.85,w=40+r()*120;c.beginPath();c.ellipse(x,y,w,w*.22,0,0,7);c.fill();c.beginPath();c.ellipse(x+w*.3,y-w*.08,w*.5,w*.18,0,0,7);c.fill()}}
+function drawSky(c){const hz=view.hz;if(hz<=0)return;const gr=c.createLinearGradient(0,0,0,hz+2);gr.addColorStop(0,'#6f8396');gr.addColorStop(.7,'#b9b3a3');gr.addColorStop(1,'#dcc9a6');c.fillStyle=gr;c.fillRect(0,0,view.w,hz+2);
+  const r=mulberry32(99);c.fillStyle='rgba(240,236,226,.55)';for(let i=0;i<9;i++){const x=((r()*view.w*2-(S.t*4+cam.yaw*view.w*.8))%(view.w*1.6)+view.w*1.6)%(view.w*1.6)-view.w*.3,y=r()*hz*.85,w=40+r()*120;c.beginPath();c.ellipse(x,y,w,w*.22,0,0,7);c.fill();c.beginPath();c.ellipse(x+w*.3,y-w*.08,w*.5,w*.18,0,0,7);c.fill()}}
 function drawGround(c){const W=view.w,H=view.h,hz=view.hz,n=ground.width;c.fillStyle='#6a7650';c.fillRect(0,hz,W,H-hz);c.imageSmoothingEnabled=true;
-  let y=hz+1;while(y<H){const step=y<hz+30?2:y<hz+120?3:y<hz+260?4:6;const d0=view.Hc*view.f/(y-hz),d1=view.Hc*view.f/(y+step-hz);
-    if(d0<11000){const wy0=view.eyeY-d0,wy1=view.eyeY-d1,hw=W/2*((d0+d1)/2)/view.f;const sx=(view.cx-hw)/RES,sw=2*hw/RES,sy=wy0/RES,sh=Math.max(.01,(wy1-wy0)/RES);
-      if(sy+sh>0&&sy<n){const x0=Math.max(0,sx),x1=Math.min(n,sx+sw);if(x1>x0){const y0=Math.max(0,sy),y1=Math.min(n,sy+sh);
-        c.drawImage(ground,x0,y0,x1-x0,Math.max(.01,y1-y0),view.ox+(x0-sx)/sw*W,y+view.oy,(x1-x0)/sw*W+.5,step+.8)}}}
+  const dpr=view.dpr,F=view.F,Rv=view.R,cx=view.cx,cy=view.cy;
+  let y=Math.max(hz+1,0);while(y<H){const step=y<hz+30?2:y<hz+120?3:y<hz+260?4:6;const d0=view.Hc*view.f/(y-hz),d1=view.Hc*view.f/(y+step-hz);
+    if(d0<11000){const a0=d0-view.D,a1=d1-view.D,s=view.f/((d0+d1)/2),kA=step/(a1-a0);
+      const A=s*Rv.x,Cc=s*Rv.y,E=W/2+view.ox-s*(cx*Rv.x+cy*Rv.y),B=kA*F.x,Dd=kA*F.y,Ff=y+view.oy-kA*(cx*F.x+cy*F.y+a0);
+      c.save();c.beginPath();c.rect(0,y,W,step+.8);c.clip();c.setTransform(dpr*A,dpr*B,dpr*Cc,dpr*Dd,dpr*E,dpr*Ff);c.drawImage(ground,0,0,C.MAP,C.MAP);c.restore()}
     y+=step}
   const fog=c.createLinearGradient(0,hz,0,hz+(H-hz)*.45);fog.addColorStop(0,'rgba(214,200,170,1)');fog.addColorStop(1,'rgba(214,200,170,0)');c.fillStyle=fog;c.fillRect(0,hz,W,(H-hz)*.45)}
 
@@ -766,9 +798,9 @@ function render(){if(stale())fit();const c=ctx;c.setTransform(view.dpr,0,0,view.
       figure(c,p,hp,h.you?'#c0392b':T.col,T.shape,T.col,h.you);c.globalAlpha=1;
       if(h.you){bar(c,p.x,p.y-hp*1.6,36,h.hp/h.max,'#9fe08a')}})}
   for(const m of S.marks){const p0=proj(m.x,m.y,0);if(!p0||p0.d>12000||p0.x<-view.w||p0.x>view.w*2)continue;
-    for(const b of m.boulders){const p=proj(b.x,b.y,b.z);if(!p)continue;add(p.d,()=>{c.globalAlpha=1-fogOf(p.d);stone(c,p.x,p.y,b.r*p.s,STONE.moss[0],STONE.moss[1],STONE.moss[2],b.n);c.globalAlpha=1})}}
+    for(const b of m.boulders){const p=proj(b.x,b.y,b.z);if(!p)continue;add(p.d,()=>{c.globalAlpha=(1-fogOf(p.d))*nearFade(p);stone(c,p.x,p.y,b.r*p.s,STONE.moss[0],STONE.moss[1],STONE.moss[2],b.n);c.globalAlpha=1})}}
   // the giant, boulder by boulder, plus what is built on it and who clings to it
-  for(const b of giantBoulders(g)){const p=proj(b.x,b.y,b.z);if(!p)continue;const col=partStone(g,b.part);add(p.d,()=>{c.globalAlpha=(1-fogOf(p.d))*(S.role==='giant'?.78:1);stone(c,p.x,p.y,b.r*p.s,col[0],col[1],col[2],b.n);c.globalAlpha=1})}
+  for(const b of giantBoulders(g)){const p=proj(b.x,b.y,b.z);if(!p)continue;const col=partStone(g,b.part);add(p.d,()=>{c.globalAlpha=(1-fogOf(p.d))*(S.role==='giant'?.78:nearFade(p));stone(c,p.x,p.y,b.r*p.s,col[0],col[1],col[2],b.n);c.globalAlpha=1})}
   for(const k in g.parts){const a=partAnchor(g,k);const pp=g.parts[k];pp.builds.forEach((b,i)=>{const lat=(i-.5)*90;const p=proj(a.x+lat,a.y-60,a.z+40);if(!p)return;add(p.d-80,()=>{const s=p.s;
       if(b.k==='cannon'){c.fillStyle='#1b1b1b';c.fillRect(p.x-28*s,p.y-22*s,56*s,30*s);c.fillRect(p.x-6*s,p.y-60*s,12*s,40*s);shapePath(c,TOWNS[b.town].shape,p.x,p.y-8*s,Math.max(4,10*s));c.fillStyle=TOWNS[b.town].col;c.fill()}
       else{c.fillStyle='#e9e1d0';c.strokeStyle='#2a241e';c.lineWidth=1;c.beginPath();c.moveTo(p.x,p.y-70*s);c.lineTo(p.x+14*s,p.y);c.lineTo(p.x-14*s,p.y);c.closePath();c.fill();c.stroke()}})})}
@@ -853,13 +885,13 @@ function toast(t){toastEl.textContent=t;toastEl.classList.add('on');toastT=2.6}
 function start(role){closeMenu();newGame(role,(Date.now()&0xffff)+1);buildGround();view.cx=role==='giant'?S.g.x:S.you.x;view.cy=role==='giant'?S.g.y:S.you.y;lastBtnSig='';
   toast(role==='giant'?'You are the giant. Tap or steer to walk. Crush the towns.':'You are of Ashford. Enter town and open Town for a quest.')}
 let acc=0,last=performance.now();
-function frame(now){requestAnimationFrame(frame);const dt=Math.min(.1,(now-last)/1000);last=now;pollPad();
+function frame(now){requestAnimationFrame(frame);const dt=Math.min(.1,(now-last)/1000);last=now;pollPad();stepCamera(dt);
   if(S&&!menuOpen()&&!S.over){acc+=dt;while(acc>=C.DT){step(C.DT);acc-=C.DT}}else acc=0;
   if(toastT>0){toastT-=dt;if(toastT<=0)toastEl.classList.remove('on')}
   try{render();paintHud();paintButtons()}catch(e){console.error(e)}}
 fit();openTitle();requestAnimationFrame(frame);
 // test hook
-window.__giant={get S(){return S},start,step,C,botHuman,humanAct,
+window.__giant={get S(){return S},cam,start,step,C,botHuman,humanAct,
   autoplay(role,seed,secs){newGame(role,seed);buildGround();const you=S.you;if(you)you.you=false,you.role='warden';let t=0;while(!S.over&&t<secs){step(C.DT);t+=C.DT}return{t:S.t,over:S.over,towns:S.towns.map(t=>t.name+':'+t.tier+':'+(t.alive?Math.round(t.hp):'X')),parts:Object.fromEntries(Object.entries(S.g.parts).map(([k,p])=>[k,Math.round(p.hp)])),lv:S.humans.map(h=>h.lvl)}}};
 </script>
 </body>
