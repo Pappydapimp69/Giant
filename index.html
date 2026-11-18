@@ -56,7 +56,7 @@ body.touch #btns{grid-template-columns:repeat(2,minmax(0,1fr))}
   <div id="stage">
     <canvas id="cv"></canvas>
     <div id="toast"></div>
-    <div id="build">build 2026-11-18f</div>
+    <div id="build">build 2026-11-18g</div>
     <div class="ov on" id="ovTitle"><div class="card">
       <h1>Colossus Roams</h1>
       <p class="dim">A giant two thousand feet tall walks the land. Below it, three towns go about their quests. Some will arm it against their rivals. Some will cut it down.</p>
@@ -150,11 +150,12 @@ function newGame(role,seed){
   S={role,seed,t:0,towns,g,ponds:[],marks:[],townSeq:3,founded:[0,0,0],humans:[],monsters:[],crystals:[],shots:[],fx:[],msgs:[],over:null,nextId:1,camZoom:1};
   const youTown=0;
   // humans
-  const roles=['warden','raider','warden','warden','raider','warden','raider','warden','warden'];
-  let n=0;
+  // each people is a leader and two followers; followers go where their leader goes, so the leader's choice
+  // (strike the giant, defend home, or grow the camp) is the people's choice
+  const lead=['warden','warden','raider'];
   for(let ti=0;ti<3;ti++)for(let k=0;k<3;k++){
     const isYou=role==='human'&&ti===youTown&&k===0;
-    S.humans.push(mkHuman(ti,isYou,isYou?'you':roles[n++%roles.length]));
+    const h=mkHuman(ti,isYou,isYou?'you':(ti===0?'warden':lead[ti]));h.leader=k===0;S.humans.push(h);
   }
   // old giants that turned to stone long ago: landmarks seen from afar, and troll lairs
   for(let i=0;i<C.MARKS;i++){let x,y,ok=false;for(let k=0;k<40&&!ok;k++){x=rr(500,M-500);y=rr(500,M-500);ok=S.towns.every(t=>Math.hypot(t.x-x,t.y-y)>1300)&&Math.hypot(x-cx,y-cy)>1200&&S.marks.every(m=>Math.hypot(m.x-x,m.y-y)>1800)}
@@ -182,7 +183,7 @@ function foundOutpost(t){const f=t.i;if(S.founded[f]>=C.OUTPOSTS)return;
 function mkHuman(ti,isYou,role){const t=S.towns[ti];
   return{id:S.nextId++,town:ti,you:isYou,role,x:t.x+rr(-60,60),y:t.y+rr(-60,60),hp:100,max:100,atk:10,def:0,lvl:1,xp:0,gold:25,
     kits:{spike:0,cannon:0},potions:1,quest:null,mode:'ground',part:null,to:null,prog:0,grip:100,cd:0,dead:0,lastAct:-9,
-    tx:null,ty:null,goal:null,think:0,face:0,swing:0,name:isYou?'You':TOWNS[ti].name+' '+(['warden','raider'].includes(role)?role:'')}}
+    tx:null,ty:null,goal:null,think:0,face:0,swing:0,deeds:{spikes:0,cripples:0,wrecked:0,quests:0,grown:0,head:0},name:isYou?'You':TOWNS[ti].name+' '+(['warden','raider'].includes(role)?role:'')}}
 function spawnMonster(){const M=C.MAP;let x,y,ok=false;const lair=S.marks.length&&rnd()<.3;
   for(let k=0;k<20&&!ok;k++){if(lair){const m=S.marks[Math.floor(rnd()*S.marks.length)],a=rr(0,6.28),d=rr(300,700);x=clamp(m.x+Math.cos(a)*d,150,M-150);y=clamp(m.y+Math.sin(a)*d,150,M-150)}else{x=rr(150,M-150);y=rr(150,M-150)}ok=S.towns.every(t=>Math.hypot(t.x-x,t.y-y)>480)}
   const troll=lair?rnd()<.7:rnd()<.15;S.monsters.push({id:S.nextId++,kind:troll?'troll':'wolf',x,y,hp:troll?90:32,max:troll?90:32,atk:troll?13:6,gold:troll?24:9,xp:troll?30:12,r:troll?20:13,cd:0,hx:x,hy:y})}
@@ -247,7 +248,8 @@ function hurtArea(x,y,r,dmg,tdmg,why){
   for(const h of S.humans)if(h.mode==='ground'&&!h.dead&&Math.hypot(h.x-x,h.y-y)<r+10)hurtHuman(h,dmg,why);
   for(const m of S.monsters)if(Math.hypot(m.x-x,m.y-y)<r+m.r)m.hp-=dmg;
   for(const t of S.towns)if(t.alive&&Math.hypot(t.x-x,t.y-y)<r+t.r)hurtTown(t,tdmg)}
-function hurtTown(t,d){t.hp-=d;if(t.hp<=0&&t.alive){t.hp=0;t.alive=false;S.g.kills++;announce(t.name+' has been destroyed!');sfx('smash')}}
+function defenders(t){return S.humans.filter(h=>!h.dead&&h.mode==='ground'&&h.town===t.i&&Math.hypot(h.x-t.x,h.y-t.y)<t.r+20).length}
+function hurtTown(t,d){d*=1-Math.min(.5,.17*defenders(t));t.hp-=d;if(t.hp<=0&&t.alive){t.hp=0;t.alive=false;S.g.kills++;announce(t.name+' has been destroyed!');sfx('smash')}}
 function hurtHuman(h,d,why){if(h.dead)return;d=Math.max(d*.3,d-h.def);h.hp-=d;
   if(h.you){shakeCam(6);if(why&&h.hp>0)toast(why==='crush'?'Crushed under a foot!':why==='stomp'?'Caught in a stomp!':why==='smash'?'Hit by the smash!':why==='cannon'?'Cannon fire!':'Ouch')}
   if(h.hp<=0)killHuman(h,why)}
@@ -260,7 +262,7 @@ function stepGiant(dt){const g=S.g;if(g.dead)return;
   if(g.wind){g.wind.t-=dt;if(g.wind.t<=0)resolveWind()}
   // parts: spikes, regen
   for(const k in g.parts){const p=g.parts[k];const sp=p.builds.filter(b=>b.k==='spike').length;
-    if(sp)damagePart(k,sp*C.SPIKE_DPS*dt,null);
+    for(const b of p.builds)if(b.k==='spike')damagePart(k,C.SPIKE_DPS*dt,S.humans.find(h=>h.id===b.owner)||null);
     if(g.fallen<=0&&p.hp<p.max)p.hp=Math.min(p.max,p.hp+C.REGEN*(g.rooted?C.ROOT_REGEN:1)*dt);
     if(p.crip&&p.hp>=p.max*.4&&k!=='lleg'&&k!=='rleg')p.crip=false}
   if(g.fallen>0){g.v=0;g.fallen-=dt;if(g.fallen<=0){g.fallen=0;for(const k of['lleg','rleg']){const p=g.parts[k];p.hp=Math.max(p.hp,p.max*.45);p.crip=false}
@@ -306,12 +308,13 @@ function cannonTarget(town){const g=S.g;let best=null,bd=C.CANNON_RANGE;
 function footLand(ft){sfx('step',near(ft));shakeCam(4);
   S.fx.push({k:'ring',x:ft.x,y:ft.y,r:C.FOOT_R*1.4,t:0,life:.5,col:'#c9b48a'});
   hurtArea(ft.x,ft.y,C.FOOT_R,C.CRUSH_DMG,C.CRUSH_TOWN,'crush');addPond(ft.x,ft.y)}
-function damagePart(k,d,by){const g=S.g,p=g.parts[k];if(g.dead)return;
+function damagePart(k,d,by){const g=S.g,p=g.parts[k];if(g.dead)return;if(by)p.lastBy=by;
   
   p.hp-=d;if(p.hp<=0){p.hp=0;
-    if(k==='head'){g.dead=true;announce('The giant is slain!');return}
+    const who=p.lastBy?(p.lastBy.you?'you':p.lastBy.name):null;if(p.lastBy)p.lastBy.deeds[k==='head'?'head':'cripples']++;
+    if(k==='head'){g.dead=true;announce('The giant is slain'+(who?' by '+who:'')+'!');return}
     if(!p.crip){p.crip=true;const lost=p.builds.filter(b=>b.k==='cannon').length;p.builds=p.builds.filter(b=>b.k!=='cannon');
-      announce(PARTS[k].name+' crippled!'+(lost?' Its cannons tumble off.':''));
+      announce(PARTS[k].name+' crippled'+(who?' by '+who:'')+'!'+(lost?' Its cannons tumble off.':''));
       if((k==='lleg'||k==='rleg')&&g.parts.lleg.crip&&g.parts.rleg.crip){g.fallen=C.FALL_TIME;g.wind=null;shakeCam(30);sfx('stomp');
         announce('The giant falls! Its head is on the ground. Strike now!');}}}}
 
@@ -340,10 +343,10 @@ function humanAct(h,slot){const c=humanCtx(h)[slot];if(c.why){if(h.you)toast(c.w
   h.lastAct=S.t;
   if(h.mode==='climb'){const g=S.g,p=g.parts[h.part];
     if(slot==='A'){if(h.cd>0)return false;h.cd=.6;h.swing=.2;const ec=p.builds.find(b=>b.k==='cannon'&&b.town!==h.town);
-      if(ec){ec.hp-=h.atk;if(ec.hp<=0){p.builds.splice(p.builds.indexOf(ec),1);if(h.you)toast('Cannon wrecked!');gainXp(h,15)}}
+      if(ec){ec.hp-=h.atk;if(ec.hp<=0){p.builds.splice(p.builds.indexOf(ec),1);h.deeds.wrecked++;if(h.you)toast('Cannon wrecked!');gainXp(h,15)}}
       else{damagePart(h.part,h.atk*.5,h);gainXp(h,1)}sfx('hit',h.you);return true}
     if(slot==='B'){dismount(h,h.part==='lleg'||h.part==='rleg'||g.fallen>0?'down':'fall');return true}
-    if(slot==='X'){h.kits.spike--;p.builds.push({k:'spike',town:h.town,owner:h.id});sfx('build',h.you);if(h.you)toast('Spike driven into the '+PARTS[h.part].name.toLowerCase()+'.');return true}
+    if(slot==='X'){h.kits.spike--;h.deeds.spikes++;p.builds.push({k:'spike',town:h.town,owner:h.id});sfx('build',h.you);if(h.you)toast('Spike driven into the '+PARTS[h.part].name.toLowerCase()+'.');return true}
     if(slot==='Y'){h.kits.cannon--;p.builds.push({k:'cannon',town:h.town,owner:h.id,hp:40,cd:1});sfx('build',h.you);if(h.you)toast('Cannon mounted. It fires at every town but yours.');return true}
   }else{
     if(slot==='A'){if(h.cd>0)return false;h.cd=.55;h.swing=.2;const m=nearMonster(h,60);
@@ -353,7 +356,8 @@ function humanAct(h,slot){const c=humanCtx(h)[slot];if(c.why){if(h.you)toast(c.w
     if(slot==='X'){if(h.you)openTown(townAt(h));return true}
     if(slot==='Y'){h.potions--;h.hp=Math.min(h.max,h.hp+60);if(h.you)toast('You drink a potion.');return true}}
   return false}
-function mount(h,part){h.mode='climb';h.part=part;h.to=null;h.prog=0;h.grip=100+(h.lvl-1)*8;h.tx=h.ty=null;if(h.you)toast('You grab hold of the '+PARTS[part].name.toLowerCase()+'. Watch your grip.')}
+function mount(h,part){if(h.you){const f=S.humans.filter(x=>x.town===h.town&&!x.leader&&!x.dead).length;if(f)setTimeout(()=>toast('Your '+f+' Ashford followers climb after you.'),1200)}
+h.mode='climb';h.part=part;h.to=null;h.prog=0;h.grip=100+(h.lvl-1)*8;h.tx=h.ty=null;if(h.you)toast('You grab hold of the '+PARTS[part].name.toLowerCase()+'. Watch your grip.')}
 function dismount(h,how){const g=S.g;const w=partWorld(h.part);const hgt=g.fallen>0?0:PARTS[h.part].h;
   h.mode='ground';const a=rr(0,6.28),r=how==='down'?C.FOOT_R+30:rr(120,260);h.x=w.x+Math.cos(a)*r;h.y=w.y+Math.sin(a)*r;
   const part=h.part;h.part=null;h.to=null;
@@ -393,7 +397,7 @@ function stepHuman(h,dt,mv){
     if(h.quest&&h.quest.k==='gather'){h.quest.n++;questCheck(h)}if(h.you){sfx('coin');toast('Sky crystal!'+(h.quest&&h.quest.k==='gather'?' ('+Math.min(h.quest.n,h.quest.need)+'/'+h.quest.need+')':''))}}}
   // in town: auto heal, claim quests
   const t=townAt(h);if(t){h.hp=Math.min(h.max,h.hp+8*dt);
-    if(h.quest&&h.quest.done){h.gold+=h.quest.gold;if(t.i===h.town)grow(t,h.quest.gold);gainXp(h,h.quest.xp);if(h.you){toast('Quest reward: '+h.quest.gold+' gold.');sfx('coin')}h.quest=null}
+    if(h.quest&&h.quest.done){h.gold+=h.quest.gold;h.deeds.quests++;if(t.i===h.town){grow(t,h.quest.gold);h.deeds.grown+=h.quest.gold}gainXp(h,h.quest.xp);if(h.you){toast('Quest reward: '+h.quest.gold+' gold.');sfx('coin')}h.quest=null}
     if(!h.quest&&!h.you)h.quest=newQuest(h)}
 }
 
@@ -426,7 +430,15 @@ function botHuman(h,dt){const mv={x:0,y:0};if(h.dead)return mv;const g=S.g;
     if(h.grip<30&&!g.fallen){if(onLeg){humanAct(h,'B');return mv}if(h.part!=='torso'){climbMove(h,{x:-PARTS[h.part].sx,y:PARTS.torso.sy-PARTS[h.part].sy});return mv}return mv}
     if(h.part==='torso'&&h.grip<70&&!g.fallen)return mv;
     let goal;
-    if(h.role==='raider'){
+    if(!h.leader){const L=leaderOf(h);
+      if(peopleMode(L)!=='climb'&&!(g.fallen>0)){if(onLeg||g.fallen>0){humanAct(h,'B');return mv}goal=h.part==='torso'?'lleg':'torso'}
+      else goal=g.fallen>0?'head':(L.to||L.part);
+      if(h.part===goal){const free=p.builds.length<C.SLOTS&&!p.crip,arm=goal==='larm'||goal==='rarm'||goal==='torso';
+        if(h.role==='raider'&&arm&&h.kits.cannon&&free){humanAct(h,'Y');return mv}
+        if(h.role!=='raider'&&h.kits.spike&&free&&!p.builds.some(b=>b.k==='spike'&&b.owner===h.id)){humanAct(h,'X');return mv}
+        humanAct(h,'A');return mv}
+    }
+    else if(h.role==='raider'){
       if(h.kits.cannon<=0){if(onLeg||g.fallen>0)humanAct(h,'B');else climbMove(h,{x:-PARTS[h.part].sx,y:-1});return mv}
       goal=['larm','rarm','torso'].find(k=>g.parts[k].builds.length<C.SLOTS&&!g.parts[k].crip)||'torso';
       if(h.part===goal){if(!humanAct(h,'Y'))humanAct(h,'A');return mv}
@@ -455,11 +467,21 @@ function botHuman(h,dt){const mv={x:0,y:0};if(h.dead)return mv;const g=S.g;
   if(G.k==='foot'){const f=g.feet[G.i];if(f.air>0){h.goal=null;return mv}tx=f.x;ty=f.y;
     const part=nearFoot(h);if(part){if(g.fallen>0&&h.role!=='raider'&&part!=='head'){const hp=headPos(g);tx=hp.x;ty=hp.y}else{mount(h,part);return mv}}}
   if(G.k==='head'){const hp=headPos(g);tx=hp.x;ty=hp.y;const part=nearFoot(h);if(part==='head'){mount(h,'head');return mv}}
+  if(G.k==='defend'){if(!G.town.alive){h.goal=null;return mv}if(Math.hypot(G.x-h.x,G.y-h.y)<30)return mv}
   if(G.k==='shop'){const t=G.town;if(!t.alive){h.goal=null;return mv}if(townAt(h)===t){botShop(h);h.goal=null;return mv}}
   const dx=tx-h.x,dy=ty-h.y,d=Math.hypot(dx,dy);if(d>8){mv.x=dx/d;mv.y=dy/d}
   if(G.k==='crystal'&&d<20)h.goal=null;
   return mv}
+function leaderOf(h){return S.humans.find(x=>x.town===h.town&&x.leader)}
+// what a leader's people are doing, read from where the leader is
+function peopleMode(L){const g=S.g;if(!L||L.dead)return'quest';if(L.mode==='climb'&&!g.dead)return'climb';
+  const t=townAt(L);if(t&&t.i===L.town&&!g.dead&&dist(g,t)<1700)return'defend';if(g.fallen>0&&dist(g,L)<1500)return'head';return'quest'}
 function pickGoal(h){const g=S.g;
+  if(!h.leader){const L=leaderOf(h),mode=peopleMode(L),home=homeOf(h);if(!home)return null;
+    if(mode==='climb'){let bi=0,bd=1e9;g.feet.forEach((f,i)=>{const d=Math.hypot(f.x-h.x,f.y-h.y);if(d<bd&&f.air<=0){bd=d;bi=i}});return{k:'foot',i:bi}}
+    if(mode==='head')return{k:'head'};
+    if(mode==='defend'){const t=townAt(L);return{k:'defend',town:t,x:t.x+rr(-40,40),y:t.y+rr(-40,40)}}
+    return economyGoal(h,home)}
   const home=homeOf(h);
   if(!home)return null;
   if(h.quest&&h.quest.done)return{k:'shop',town:home,x:home.x,y:home.y};
@@ -473,6 +495,10 @@ function pickGoal(h){const g=S.g;
     if(h.role==='warden'||!tt||tt.i!==h.town){let bi=0,bd=1e9;g.feet.forEach((f,i)=>{const d=Math.hypot(f.x-h.x,f.y-h.y);if(d<bd&&f.air<=0){bd=d;bi=i}});return{k:'foot',i:bi}}}
   if(h.role==='warden'&&g.rooted&&dG<1600&&!g.dead){return{k:'foot',i:rnd()<.5?0:1}}
   if(h.role==='warden'&&h.lvl>=3&&dG<700&&!g.dead){return{k:'foot',i:rnd()<.5?0:1}}
+  return economyGoal(h,home)}
+function economyGoal(h,home){const want=h.role==='raider'?'cannon':'spike';
+  if(h.quest&&h.quest.done)return{k:'shop',town:home,x:home.x,y:home.y};
+  if(h.hp<h.max*.35)return{k:'shop',town:home,x:home.x,y:home.y};
   if(h.gold>=C.COST[want]+(h.potions?0:C.COST.potion)&&h.kits[want]<2)return{k:'shop',town:home,x:home.x,y:home.y};
   if(h.gold>=C.COST.sword+40&&h.lvl>=3&&rnd()<.3)return{k:'shop',town:home,x:home.x,y:home.y};
   if(h.quest&&h.quest.k==='gather'){let b=null,bd=1e9;for(const c of S.crystals){const d=dist(c,h);if(d<bd){bd=d;b=c}}if(b)return{k:'crystal',x:b.x,y:b.y}}
@@ -656,6 +682,7 @@ function openHelp(back){showMenu('How to play',`
 <p><b>The giant</b> walks slowly toward wherever you point it. Each footfall crushes whatever is under the foot, and its shadow shows where the next step lands. <b>Stomp</b> shakes the ground around both feet, <b>Smash</b> brings a fist down on a town in reach, and <b>Shake</b> rattles climbers off its body and knocks spikes loose. The giant is heavy: it takes seconds to reach full stride and to stop, and the faster it walks the wider it turns, so slow down for a tight turn. The dotted trail shows where it will walk. Every footstep leaves a lake that slows anyone wading through it, and sky crystals wash up at their edges. Stand still for five seconds and the giant turns to stone: it heals four times as fast, but climbers hold on without tiring. The giant wins when only one of the three peoples has a settlement left.</p>
 <p><b>Settlements</b> start as small camps far apart. Gold from finished quests makes your home grow into a village, a town and then a city, with more walls and a better shop. A city sends settlers to found a new camp, usually beside one of the giant's footprint lakes. The grey stone hills are old giants that turned to stone long ago, and trolls lair around them.</p>
 <p><b>Humans</b> take quests in town, hunt beasts and gather sky crystals for gold, and spend it at the town shop. Walk up to a planted foot and <b>Climb</b>. On the body, grip drains, faster while moving. Rest on the back to regain it. When the giant tenses, hold still to brace.</p>
+<p><b>Your people follow you.</b> You lead Ashford: when you climb the giant your two followers climb after you and strike where you strike; when you stand inside your own settlement as the giant approaches they gather to defend it, and every defender softens the giant's blows on its walls; otherwise they quest and grow your home. Rival peoples have leaders of their own, and Corvel's leader arms the giant.</p>
 <p><b>Spikes</b> bleed a body part. Cripple one leg and the giant slows. Cripple both and it falls, putting its head on the ground. Slay the head to win. <b>Cannons</b> mounted on the arms or back fire at every town except the builder's. Rival bots will arm the giant against you, so wreck their cannons.</p>
 <p class="dim">Camera: drag the view to turn and tilt, pinch or scroll to zoom. Keys Q and E turn, R and F zoom, T and G tilt, C resets. Gamepad right stick turns and tilts, triggers zoom, right stick click resets. Movement always follows the camera.</p>
 <p class="dim">Keys: move with WASD or arrows, actions J K L H, pause Esc. Gamepad: left stick, A B X Y, Start. Touch: drag the left pad or tap the map, and use the buttons.</p>`,
@@ -664,7 +691,12 @@ function openPause(){if(!S||S.over)return;showMenu('Paused','',[
   {id:'r',label:'Resume',go:closeMenu},{id:'cam',label:'Reset camera',go:()=>{camReset();closeMenu()}},{id:'help',label:'How to play',go:()=>openHelp(openPause)},
   {id:'snd',label:'Sound: '+(save.sound?'on':'off'),go:()=>{save.sound=!save.sound;persist();openPause()}},
   {id:'restart',label:'Restart',sub:'New map, same side',go:()=>start(S.role)},{id:'quit',label:'Quit to title',go:openTitle}],closeMenu,true)}
-function openEnd(){const o=S.over;showMenu(o.win?'Victory':'Defeat',`<p>${o.text}</p><p class="dim">${S.role==='giant'?'Towns destroyed: '+S.g.kills:'Level '+S.you.lvl+', '+S.you.gold+' gold'}. Time ${Math.floor(S.t/60)}m ${Math.floor(S.t%60)}s.</p>`,
+function deedsText(h){const d=h.deeds,out=[];if(d.head)out.push('struck the blow that slew the giant');if(d.cripples)out.push('crippled '+d.cripples+' of its limbs');
+  if(d.spikes)out.push('drove '+d.spikes+' spike'+(d.spikes>1?'s':''));if(d.wrecked)out.push('wrecked '+d.wrecked+' rival cannon'+(d.wrecked>1?'s':''));
+  if(d.quests)out.push('finished '+d.quests+' quest'+(d.quests>1?'s':'')+(d.grown?', giving '+d.grown+' gold to grow your home':''));
+  return out.length?'You '+out.join(', ')+'.':'You did nothing the chronicle remembers.'}
+function chronicle(){return S.msgs.slice(-6).map(m=>`<p class="dim">${Math.floor(m.t/60)}:${String(Math.floor(m.t%60)).padStart(2,'0')} ${m.text}</p>`).join('')}
+function openEnd(){const o=S.over;showMenu(o.win?'Victory':'Defeat',`<p>${o.text}</p><p>${S.role==='giant'?'You destroyed '+S.g.kills+' settlement'+(S.g.kills===1?'':'s')+'.':deedsText(S.you)}</p>${chronicle()}<p class="dim">Time ${Math.floor(S.t/60)}m ${Math.floor(S.t%60)}s.</p>`,
   [{id:'again',label:'Play again',go:()=>start(S.role)},{id:'swap',label:'Switch side',sub:S.role==='giant'?'Play as a human':'Play as the giant',go:()=>start(S.role==='giant'?'human':'giant')},{id:'quit',label:'Title',go:openTitle}],null)}
 function openTown(t){if(!t)return;const h=S.you;const C2=C.COST;
   const own=t.i===h.town;
@@ -819,7 +851,7 @@ function render(){if(stale())fit();const c=ctx;c.setTransform(view.dpr,0,0,view.
   for(const s of S.shots){const z=1300*(1-s.t)+Math.sin(s.t*Math.PI)*350;const p=proj(s.x,s.y,z);if(!p)continue;add(p.d,()=>{c.fillStyle='#1d1d1d';c.beginPath();c.arc(p.x,p.y,Math.max(3,12*p.s),0,7);c.fill()})}
   items.sort((a,b)=>b.d-a.d);for(const it of items)it.fn();
   // labels on top
-  for(const t of S.towns){const p=proj(t.x,t.y,200);if(!p||p.d>9500)continue;label(c,t.name+' · '+TIERS[t.tier].name+(S.you&&S.you.town===t.i?' (home)':''),p.x,p.y-14,12,t.col);if(t.alive)bar(c,p.x,p.y,90,t.hp/t.max,'#9fe08a')}
+  for(const t of S.towns){const p=proj(t.x,t.y,200);if(!p||p.d>9500)continue;const dn=t.alive?defenders(t):0;label(c,t.name+' · '+TIERS[t.tier].name+(S.you&&S.you.town===t.i?' (home)':'')+(dn?' · '+dn+' defending':''),p.x,p.y-14,12,t.col);if(t.alive)bar(c,p.x,p.y,90,t.hp/t.max,'#9fe08a')}
   if(g.fallen>0&&!g.dead){const hp=headPos(g);const p=proj(hp.x,hp.y,300);if(p)label(c,'HEAD on the ground: strike now ('+Math.ceil(g.fallen)+'s)',p.x,p.y,13,'#ffd36b')}
   if(g.rooted&&!g.dead&&S.role!=='giant'){const p=proj(g.x,g.y,2050);if(p)label(c,'Stone giant: healing, easy to climb',p.x,Math.max(64,p.y),12,'#cfe0a8')}
   if(S.you&&!S.you.dead){const ft=nearFoot(S.you);const p=proj(S.you.x,S.you.y,0);if(ft&&p)label(c,'Climb the '+PARTS[ft].name.toLowerCase(),p.x,p.y+16,12,'#ffd36b')}
@@ -887,7 +919,8 @@ function paintHud(){if(!S)return;let a,b;
     a=`<b>Giant</b> Stride <b>${Math.round(g.v/C.G_SPEED*100)}%</b> · Peoples left <b>${peoples}</b> · Settlements ${live} · Legs ${Math.ceil(P.lleg.hp)}/${Math.ceil(P.rleg.hp)} · Head ${Math.ceil(P.head.hp)} · Climbers ${S.humans.filter(h=>h.mode==='climb').length}`;
     b=g.fallen>0?'You have fallen! Survive until you rise.':g.rooted?'You are stone: healing four times as fast, but climbers hold on easily. Move to wake.':'Wipe out two of the three peoples before their camps grow into cities. Stand still for '+C.ROOT_TIME+'s to turn to stone and heal.'}
   else{const h=S.you;a=`<b>${TOWNS[h.town].name}</b> Lv <b>${h.lvl}</b> · HP <b>${Math.ceil(h.hp)}/${h.max}</b> · Gold <b>${h.gold}</b> · Spikes ${h.kits.spike} · Cannons ${h.kits.cannon}`;
-    b=h.quest?('Quest: '+h.quest.text+' '+Math.min(h.quest.n,h.quest.need)+'/'+h.quest.need+(h.quest.done?' done, return to town':'')):'No quest: visit a town and open Town to take one.'}
+    const pm=peopleMode(h),pt={climb:'Your people climb with you. ',defend:'Your people hold the walls with you. ',head:'Your people charge the head with you. ',quest:'Your people quest and grow your home. '}[pm];
+    b=pt+(h.quest?('Quest: '+h.quest.text+' '+Math.min(h.quest.n,h.quest.need)+'/'+h.quest.need+(h.quest.done?' done, return to town':'')):'No quest: visit a town and open Town to take one.')}
   const sig=a+b;if(sig!==hudSig){hudSig=sig;hudTxt.innerHTML=a;hudQ.textContent=b}}
 let toastT=0;const toastEl=document.getElementById('toast');
 function toast(t){toastEl.textContent=t;toastEl.classList.add('on');toastT=2.6}
@@ -903,7 +936,7 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min(.1,(now-last)
 fit();openTitle();requestAnimationFrame(frame);
 // test hook
 window.__giant={get S(){return S},cam,start,step,C,botHuman,humanAct,
-  autoplay(role,seed,secs){newGame(role,seed);buildGround();const you=S.you;if(you)you.you=false,you.role='warden';let t=0;while(!S.over&&t<secs){step(C.DT);t+=C.DT}return{t:S.t,over:S.over,towns:S.towns.map(t=>t.name+':'+t.tier+':'+(t.alive?Math.round(t.hp):'X')),parts:Object.fromEntries(Object.entries(S.g.parts).map(([k,p])=>[k,Math.round(p.hp)])),lv:S.humans.map(h=>h.lvl)}}};
+  autoplay(role,seed,secs,idle){newGame(role,seed);buildGround();const you=S.you;if(you&&!idle)you.you=false,you.role='warden';let t=0;while(!S.over&&t<secs){step(C.DT);t+=C.DT}return{t:S.t,over:S.over,towns:S.towns.map(t=>t.name+':'+t.tier+':'+(t.alive?Math.round(t.hp):'X')),parts:Object.fromEntries(Object.entries(S.g.parts).map(([k,p])=>[k,Math.round(p.hp)])),lv:S.humans.map(h=>h.lvl)}}};
 </script>
 </body>
 </html>
