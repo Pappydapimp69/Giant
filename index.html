@@ -56,7 +56,7 @@ body.touch #btns{grid-template-columns:repeat(2,minmax(0,1fr))}
   <div id="stage">
     <canvas id="cv"></canvas>
     <div id="toast"></div>
-    <div id="build">build 2026-11-18f</div>
+    <div id="build">build 2026-11-18g</div>
     <div class="ov on" id="ovTitle"><div class="card">
       <h1>Colossus Roams</h1>
       <p class="dim">A giant two thousand feet tall walks the land. Below it, three towns go about their quests. Some will arm it against their rivals. Some will cut it down.</p>
@@ -88,8 +88,8 @@ const C={
   SHAKE_CD:11, SHAKE_WIND:1.1, SHAKE_GRIP:55, SHAKE_GRIP_BRACED:18, SHAKE_SPIKE:0.35,
   FALL_TIME:16, ROOT_TIME:5, ROOT_REGEN:4, POND_MAX:160, REGEN:2, TOWN_HP:1900,
   H_SPEED:150, CLIMB_TIME:2.4, GRIP_IDLE:2.2, GRIP_MOVE:6, GRIP_REST:9,
-  CANNON_CD:2.6, CANNON_RANGE:760, CANNON_TOWN:28, CANNON_HUM:22,
-  SPIKE_DPS:2.6, SLOTS:2,
+  CANNON_CD:2.6, CANNON_RANGE:1700, CANNON_GUARD:650, CANNON_TOWN:28, CANNON_HUM:22,
+  SPIKE_DPS:2.6, SLOTS:2, CANNON_HP:40, MEND:.25, SHOVE_GRIP:38, SHOVE_CD:1.4, STANCE_NEAR:1700, STANCE_BIAS:.27, DREAD:.05, STANCE_FAR:3600,
   COST:{spike:30,cannon:55,sword:60,armor:50,potion:15},
 };
 const PARTS={
@@ -150,11 +150,11 @@ function newGame(role,seed){
   S={role,seed,t:0,towns,g,ponds:[],marks:[],townSeq:3,founded:[0,0,0],humans:[],monsters:[],crystals:[],shots:[],fx:[],msgs:[],over:null,nextId:1,camZoom:1};
   const youTown=0;
   // humans
-  const roles=['warden','raider','warden','warden','raider','warden','raider','warden','warden'];
-  let n=0;
+  // bots have a leaning, not a fixed job: each trip they arm or cripple the giant by where it is walking
+  const lean=[-.25,0,.25];
   for(let ti=0;ti<3;ti++)for(let k=0;k<3;k++){
     const isYou=role==='human'&&ti===youTown&&k===0;
-    S.humans.push(mkHuman(ti,isYou,isYou?'you':roles[n++%roles.length]));
+    const h=mkHuman(ti,isYou,isYou?'you':'warden');h.bias=lean[k]+ti*.083;S.humans.push(h);if(!isYou)chooseStance(h);
   }
   // old giants that turned to stone long ago: landmarks seen from afar, and troll lairs
   for(let i=0;i<C.MARKS;i++){let x,y,ok=false;for(let k=0;k<40&&!ok;k++){x=rr(500,M-500);y=rr(500,M-500);ok=S.towns.every(t=>Math.hypot(t.x-x,t.y-y)>1300)&&Math.hypot(x-cx,y-cy)>1200&&S.marks.every(m=>Math.hypot(m.x-x,m.y-y)>1800)}
@@ -167,6 +167,16 @@ function newGame(role,seed){
 function mkTown(i,name,x,y,id){const T=TIERS[0];return{i,id,name,col:TOWNS[i].col,shape:TOWNS[i].shape,x,y,tier:0,r:T.r,hp:T.hp,max:T.hp,growth:0,alive:true}}
 function markOf(x,y,ang){const parts={};for(const k in PARTS)parts[k]={hp:1,max:1,crip:false,builds:[]};
   const fake={x,y,ang,fallen:1,dead:false,rooted:true,parts,feet:[{x,y,air:0},{x,y,air:0}]};return{x,y,boulders:giantBoulders(fake).map(b=>({...b,z:b.z*1.3,r:b.r*1.25}))}}
+// 1 when the giant walks on this people's settlements, 0 when it is far off and heading elsewhere
+function threatTo(f){const g=S.g;if(g.dead)return 0;const own=settlements(f);if(!own.length)return 0;
+  if(g.target&&g.target.alive&&g.target.i===f)return 1;
+  let d=1e9;for(const t of own)d=Math.min(d,dist(g,t)-t.r);return clamp((C.STANCE_FAR-d)/(C.STANCE_FAR-C.STANCE_NEAR),0,1)}
+// arm it while it tramples rivals, cut it down when it turns on home; a people the giant has nearly
+// won with stays loyal to it, and a people with only one rival left fears being the last one crushed
+function chooseStance(h){if(h.you)return;const f=h.town,rivals=[0,1,2].filter(o=>o!==f&&settlements(o).length).length;
+  // every settlement it flattens makes the rest dread it more
+  let want=threatTo(f)+h.bias+C.STANCE_BIAS+C.DREAD*S.g.kills;if(rivals===0)want=1;
+  const was=h.role;h.role=want>(was==='raider'?.6:.4)?'warden':'raider'}
 function settlements(f){return S.towns.filter(t=>t.alive&&t.i===f)}
 function homeOf(h){const own=settlements(h.town);const pool=own.length?own:S.towns.filter(t=>t.alive);let b=null,bd=1e9;for(const t of pool){const d=dist(t,h);if(d<bd){bd=d;b=t}}return b}
 function grow(t,gold){if(!t.alive)return;t.growth+=gold;const T=TIERS[t.tier];if(t.growth<T.grow)return;t.growth-=T.grow;t.tier++;const N=TIERS[t.tier];
@@ -182,7 +192,7 @@ function foundOutpost(t){const f=t.i;if(S.founded[f]>=C.OUTPOSTS)return;
 function mkHuman(ti,isYou,role){const t=S.towns[ti];
   return{id:S.nextId++,town:ti,you:isYou,role,x:t.x+rr(-60,60),y:t.y+rr(-60,60),hp:100,max:100,atk:10,def:0,lvl:1,xp:0,gold:25,
     kits:{spike:0,cannon:0},potions:1,quest:null,mode:'ground',part:null,to:null,prog:0,grip:100,cd:0,dead:0,lastAct:-9,
-    tx:null,ty:null,goal:null,think:0,face:0,swing:0,name:isYou?'You':TOWNS[ti].name+' '+(['warden','raider'].includes(role)?role:'')}}
+    tx:null,ty:null,goal:null,think:0,face:0,swing:0,name:isYou?'You':TOWNS[ti].name,bias:0}}
 function spawnMonster(){const M=C.MAP;let x,y,ok=false;const lair=S.marks.length&&rnd()<.3;
   for(let k=0;k<20&&!ok;k++){if(lair){const m=S.marks[Math.floor(rnd()*S.marks.length)],a=rr(0,6.28),d=rr(300,700);x=clamp(m.x+Math.cos(a)*d,150,M-150);y=clamp(m.y+Math.sin(a)*d,150,M-150)}else{x=rr(150,M-150);y=rr(150,M-150)}ok=S.towns.every(t=>Math.hypot(t.x-x,t.y-y)>480)}
   const troll=lair?rnd()<.7:rnd()<.15;S.monsters.push({id:S.nextId++,kind:troll?'troll':'wolf',x,y,hp:troll?90:32,max:troll?90:32,atk:troll?13:6,gold:troll?24:9,xp:troll?30:12,r:troll?20:13,cd:0,hx:x,hy:y})}
@@ -228,10 +238,11 @@ function giantDo(k){const why=canGiant(k);if(why){if(S.role==='giant')toast(why)
   const g=S.g;let wind={k,t:k==='stomp'?C.STOMP_WIND:k==='smash'?C.SMASH_WIND:C.SHAKE_WIND};
   if(k==='smash'){let best=null,bd=1e9;for(const t of S.towns)if(t.alive){const d=dist(g,t);if(d<C.SMASH_REACH+t.r&&d<bd){bd=d;best=t}}
     let ang=g.ang,d=C.SMASH_REACH*.8;if(best){ang=Math.atan2(best.y-g.y,best.x-g.x);d=Math.min(C.SMASH_REACH,bd)}
-    wind.x=g.x+Math.cos(ang)*d;wind.y=g.y+Math.sin(ang)*d}
+    wind.x=g.x+Math.cos(ang)*d;wind.y=g.y+Math.sin(ang)*d;const f=fwd(g);wind.s=((wind.x-g.x)*-f.y+(wind.y-g.y)*f.x)<0?-1:1;
+    if(wind.s<0?g.parts.larm.crip:g.parts.rarm.crip)wind.s=-wind.s}
   if(k==='shake'){for(const h of S.humans)if(h.mode==='climb'&&h.you)toast('The giant tenses! Hold still to brace.');sfx('warn')}
   g.still=0;g.wind=wind;g.cd[k]=k==='stomp'?C.STOMP_CD:k==='smash'?C.SMASH_CD:C.SHAKE_CD;return true}
-function resolveWind(){const g=S.g,w=g.wind;
+function resolveWind(){const g=S.g,w=g.wind;g.anim={k:w.k,t:S.t,x:w.x,y:w.y,s:w.s};
   if(w.k==='stomp'){sfx('stomp');shakeCam(14);
     for(const f of g.feet){S.fx.push({k:'ring',x:f.x,y:f.y,r:C.STOMP_R,t:0,life:.6,col:'#ffd36b'});
       hurtArea(f.x,f.y,C.STOMP_R,C.STOMP_DMG,C.STOMP_TOWN,'stomp')}}
@@ -298,18 +309,22 @@ function stepGiant(dt){const g=S.g;if(g.dead)return;
 function partWorld(k){const g=S.g,f=fwd(g),side={x:-f.y,y:f.x};const p=PARTS[k];
   if(k==='lleg')return g.feet[0];if(k==='rleg')return g.feet[1];
   const along=g.fallen>0?p.sy*900:40,lat=p.sx*900;return{x:g.x+f.x*along+side.x*lat,y:g.y+f.y*along+side.y*lat}}
-function cannonTarget(town){const g=S.g;let best=null,bd=C.CANNON_RANGE;
+// a cannon guards the giant first: it fires on anyone of another people coming for its feet who is
+// set on cutting it down; with no one there it shells the nearest rival settlement in range
+function cannonTarget(town){const g=S.g;let best=null,bd=C.CANNON_GUARD;
+  for(const h of S.humans)if(!h.dead&&h.mode==='ground'&&h.town!==town&&sideOf(h)!=='raider'){const d=dist(g,h);if(d<bd){bd=d;best=h}}
+  if(best)return best;bd=C.CANNON_RANGE;
   for(const t of S.towns)if(t.alive&&t.i!==town){const d=dist(g,t)-t.r;if(d<bd){bd=d;best=t}}
-  if(best)return best;
-  for(const h of S.humans)if(!h.dead&&h.mode==='ground'&&h.town!==town){const d=dist(g,h);if(d<bd*.8){bd=d;best=h}}
   return best}
 function footLand(ft){sfx('step',near(ft));shakeCam(4);
   S.fx.push({k:'ring',x:ft.x,y:ft.y,r:C.FOOT_R*1.4,t:0,life:.5,col:'#c9b48a'});
   hurtArea(ft.x,ft.y,C.FOOT_R,C.CRUSH_DMG,C.CRUSH_TOWN,'crush');addPond(ft.x,ft.y)}
+// builders patch the stone back: the exact counter to a strike
+function mendPart(k,d){const p=S.g.parts[k];if(S.g.dead)return;p.hp=Math.min(p.max,p.hp+d);if(p.crip&&p.hp>=p.max*.4&&k!=='lleg'&&k!=='rleg'){p.crip=false;announce(PARTS[k].name+' mended!')}}
 function damagePart(k,d,by){const g=S.g,p=g.parts[k];if(g.dead)return;
   
   p.hp-=d;if(p.hp<=0){p.hp=0;
-    if(k==='head'){g.dead=true;announce('The giant is slain!');return}
+    if(k==='head'){g.dead=true;g.deadAt=g.fallen>0?-99:S.t;announce('The giant is slain!');return}
     if(!p.crip){p.crip=true;const lost=p.builds.filter(b=>b.k==='cannon').length;p.builds=p.builds.filter(b=>b.k!=='cannon');
       announce(PARTS[k].name+' crippled!'+(lost?' Its cannons tumble off.':''));
       if((k==='lleg'||k==='rleg')&&g.parts.lleg.crip&&g.parts.rleg.crip){g.fallen=C.FALL_TIME;g.wind=null;shakeCam(30);sfx('stomp');
@@ -326,10 +341,11 @@ function nearMonster(h,r){let best=null,bd=r;for(const m of S.monsters){const d=
 function humanCtx(h){ // what each slot does now, with reason when unavailable
   if(h.dead)return{A:{l:'Wait',why:'Respawning'},B:{l:'—',why:'Respawning'},X:{l:'—',why:'Respawning'},Y:{l:'—',why:'Respawning'}};
   if(h.mode==='climb'){const p=S.g.parts[h.part];const ec=p.builds.find(b=>b.k==='cannon'&&b.town!==h.town);
-    const free=p.builds.length<C.SLOTS&&!p.crip;
-    return{A:{l:ec?'Wreck cannon':'Strike '+PARTS[h.part].name.toLowerCase(),why:h.to?'Climbing':null},
+    const free=p.builds.length<C.SLOTS&&!p.crip,rv=rivalHere(h),rs=p.builds.find(b=>b.k==='spike'&&b.town!==h.town);
+    const pull=rs&&(!h.kits.spike||!free),mend=!pull&&(!h.kits.spike||!free);
+    return{A:{l:rv?'Shove '+TOWNS[rv.town].name:ec?'Wreck cannon':'Strike '+PARTS[h.part].name.toLowerCase(),why:h.to?'Climbing':rv&&h.cd>0?'Steadying':null},
       B:{l:(h.part==='lleg'||h.part==='rleg'||S.g.fallen>0)?'Climb down':'Let go',why:h.to?'Climbing':null},
-      X:{l:'Spike ('+h.kits.spike+')',why:h.to?'Climbing':!h.kits.spike?'No spike kits':!free?(p.crip?'Part crippled':'Part full'):null},
+      X:pull?{l:'Pull spike',why:h.to?'Climbing':null}:mend?{l:'Mend',why:h.to?'Climbing':h.cd>0?'Steadying':p.hp>=p.max?'Unhurt':null}:{l:'Spike ('+h.kits.spike+')',why:h.to?'Climbing':!h.kits.spike?'No spike kits':!free?(p.crip?'Part crippled':'Part full'):null},
       Y:{l:'Cannon ('+h.kits.cannon+')',why:h.to?'Climbing':!h.kits.cannon?'No cannon kits':!free?(p.crip?'Part crippled':'Part full'):(h.part==='lleg'||h.part==='rleg')?'Legs cannot aim':null}}}
   const t=townAt(h),foot=nearFoot(h),m=nearMonster(h,60);
   return{A:{l:m?'Attack':foot?'Chop ankle':'Attack',why:m||foot?null:'Nothing in reach'},
@@ -339,12 +355,19 @@ function humanCtx(h){ // what each slot does now, with reason when unavailable
 function humanAct(h,slot){const c=humanCtx(h)[slot];if(c.why){if(h.you)toast(c.why);return false}
   h.lastAct=S.t;
   if(h.mode==='climb'){const g=S.g,p=g.parts[h.part];
-    if(slot==='A'){if(h.cd>0)return false;h.cd=.6;h.swing=.2;const ec=p.builds.find(b=>b.k==='cannon'&&b.town!==h.town);
+    if(slot==='A'){if(h.cd>0)return false;const rv=rivalHere(h);
+      if(rv){h.cd=C.SHOVE_CD;h.swing=.2;rv.grip-=C.SHOVE_GRIP*(1+(h.lvl-rv.lvl)*.08);rv.lastAct=S.t;sfx('hit',h.you||rv.you);
+        if(rv.you)toast('Shoved by '+TOWNS[h.town].name+'! Your grip slips.');if(h.you)toast('You shove the '+TOWNS[rv.town].name+' climber.');
+        if(rv.grip<=0){rv.grip=0;if(rv.you)toast('Shoved off the giant!');dismount(rv,'fall');gainXp(h,10)}return true}
+      h.cd=.6;h.swing=.2;const ec=p.builds.find(b=>b.k==='cannon'&&b.town!==h.town);
       if(ec){ec.hp-=h.atk;if(ec.hp<=0){p.builds.splice(p.builds.indexOf(ec),1);if(h.you)toast('Cannon wrecked!');gainXp(h,15)}}
       else{damagePart(h.part,h.atk*.5,h);gainXp(h,1)}sfx('hit',h.you);return true}
     if(slot==='B'){dismount(h,h.part==='lleg'||h.part==='rleg'||g.fallen>0?'down':'fall');return true}
-    if(slot==='X'){h.kits.spike--;p.builds.push({k:'spike',town:h.town,owner:h.id});sfx('build',h.you);if(h.you)toast('Spike driven into the '+PARTS[h.part].name.toLowerCase()+'.');return true}
-    if(slot==='Y'){h.kits.cannon--;p.builds.push({k:'cannon',town:h.town,owner:h.id,hp:40,cd:1});sfx('build',h.you);if(h.you)toast('Cannon mounted. It fires at every town but yours.');return true}
+    if(slot==='X'){const rs=p.builds.find(b=>b.k==='spike'&&b.town!==h.town);
+      if(rs&&(!h.kits.spike||p.builds.length>=C.SLOTS||p.crip)){p.builds.splice(p.builds.indexOf(rs),1);sfx('build',h.you);gainXp(h,8);if(h.you)toast('You prise out a '+TOWNS[rs.town].name+' spike.');return true}
+      if(!h.kits.spike||p.builds.length>=C.SLOTS||p.crip){if(h.cd>0)return false;h.cd=.6;h.swing=.2;mendPart(h.part,h.atk*C.MEND);h.lastBuild='cannon';gainXp(h,1);sfx('build',h.you);return true}
+      h.kits.spike--;h.lastBuild='spike';p.builds.push({k:'spike',town:h.town,owner:h.id});sfx('build',h.you);if(h.you)toast('Spike driven into the '+PARTS[h.part].name.toLowerCase()+'.');return true}
+    if(slot==='Y'){h.kits.cannon--;h.lastBuild='cannon';p.builds.push({k:'cannon',town:h.town,owner:h.id,hp:C.CANNON_HP,cd:1});sfx('build',h.you);if(h.you)toast('Cannon mounted. It guards the giant and shells every town but yours.');return true}
   }else{
     if(slot==='A'){if(h.cd>0)return false;h.cd=.55;h.swing=.2;const m=nearMonster(h,60);
       if(m){m.hp-=h.atk;sfx('hit',h.you||near(m));if(m.hp<=0)killMonster(m,h);return true}
@@ -353,6 +376,14 @@ function humanAct(h,slot){const c=humanCtx(h)[slot];if(c.why){if(h.you)toast(c.w
     if(slot==='X'){if(h.you)openTown(townAt(h));return true}
     if(slot==='Y'){h.potions--;h.hp=Math.min(h.max,h.hp+60);if(h.you)toast('You drink a potion.');return true}}
   return false}
+// a climber of another people on the same part, near enough to shove
+// which side a climber is on: bots by stance, the player by what they last built
+function sideOf(h){return h.you?(h.lastBuild==='cannon'?'raider':'warden'):h.role}
+// you may shove any climber of another people; a bot shoves only those working against it
+function rivalHere(h){if(h.mode!=='climb'||h.to)return null;let b=null;
+  for(const o of S.humans)if(o!==h&&o.mode==='climb'&&!o.dead&&!o.to&&o.part===h.part&&o.town!==h.town&&(h.you||sideOf(o)!==sideOf(h))&&(!b||o.grip<b.grip))b=o;return b}
+function ownCannons(town){const out=[];for(const k in S.g.parts)if(!S.g.parts[k].crip&&S.g.parts[k].builds.some(b=>b.k==='cannon'&&b.town===town))out.push(k);return out}
+function foesAboard(h){return S.humans.filter(o=>o.mode==='climb'&&!o.dead&&o.town!==h.town&&sideOf(o)!==sideOf(h))}
 function mount(h,part){h.mode='climb';h.part=part;h.to=null;h.prog=0;h.grip=100+(h.lvl-1)*8;h.tx=h.ty=null;if(h.you)toast('You grab hold of the '+PARTS[part].name.toLowerCase()+'. Watch your grip.')}
 function dismount(h,how){const g=S.g;const w=partWorld(h.part);const hgt=g.fallen>0?0:PARTS[h.part].h;
   h.mode='ground';const a=rr(0,6.28),r=how==='down'?C.FOOT_R+30:rr(120,260);h.x=w.x+Math.cos(a)*r;h.y=w.y+Math.sin(a)*r;
@@ -425,11 +456,21 @@ function botHuman(h,dt){const mv={x:0,y:0};if(h.dead)return mv;const g=S.g;
     const onLeg=h.part==='lleg'||h.part==='rleg';
     if(h.grip<30&&!g.fallen){if(onLeg){humanAct(h,'B');return mv}if(h.part!=='torso'){climbMove(h,{x:-PARTS[h.part].sx,y:PARTS.torso.sy-PARTS[h.part].sy});return mv}return mv}
     if(h.part==='torso'&&h.grip<70&&!g.fallen)return mv;
+    // a foe on the same hold gets shoved first: the body is contested ground
+    if(rivalHere(h)){if(h.cd<=0)humanAct(h,'A');return mv}
     let goal;
     if(h.role==='raider'){
-      if(h.kits.cannon<=0){if(onLeg||g.fallen>0)humanAct(h,'B');else climbMove(h,{x:-PARTS[h.part].sx,y:-1});return mv}
-      goal=['larm','rarm','torso'].find(k=>g.parts[k].builds.length<C.SLOTS&&!g.parts[k].crip)||'torso';
-      if(h.part===goal){if(!humanAct(h,'Y'))humanAct(h,'A');return mv}
+      const mine=ownCannons(h.town),foes=foesAboard(h);
+      if(h.kits.cannon<=0){
+        // protect it: go where foes are working (our cannons first), else to the worst hurt part, and pull or mend there
+        const at=foes.map(o=>o.to||o.part);
+        if(g.fallen>0)goal='head';
+        else if(at.length)goal=at.includes(h.part)?h.part:mine.find(k=>at.includes(k))||at[0];
+        else{let w=.75;for(const k in g.parts){const q=g.parts[k],r=q.hp/q.max;if(r<w&&(k!=='head')){w=r;goal=k}}}
+        if(!goal){if(onLeg||g.fallen>0)humanAct(h,'B');else climbMove(h,{x:-PARTS[h.part].sx,y:-1});return mv}
+        if(h.part===goal){const l=humanCtx(h).X.l;if(l==='Pull spike'||l==='Mend')humanAct(h,'X');return mv}}
+      else{goal=['larm','rarm','torso'].find(k=>g.parts[k].builds.length<C.SLOTS&&!g.parts[k].crip)||'torso';
+        if(h.part===goal){if(p.builds.length>=C.SLOTS&&p.builds.some(b=>b.k==='spike'&&b.town!==h.town)){humanAct(h,'X');return mv}if(!humanAct(h,'Y'))humanAct(h,'A');return mv}}
     }else{
       if(g.fallen>0)goal='head';
       else{const ec=Object.keys(g.parts).find(k=>g.parts[k].builds.some(b=>b.k==='cannon'&&b.town===h.town?false:b.k==='cannon'));
@@ -459,13 +500,15 @@ function botHuman(h,dt){const mv={x:0,y:0};if(h.dead)return mv;const g=S.g;
   const dx=tx-h.x,dy=ty-h.y,d=Math.hypot(dx,dy);if(d>8){mv.x=dx/d;mv.y=dy/d}
   if(G.k==='crystal'&&d<20)h.goal=null;
   return mv}
-function pickGoal(h){const g=S.g;
+function pickGoal(h){const g=S.g;if(h.mode==='ground')chooseStance(h);
   const home=homeOf(h);
   if(!home)return null;
   if(h.quest&&h.quest.done)return{k:'shop',town:home,x:home.x,y:home.y};
   if(h.hp<h.max*.35)return{k:'shop',town:home,x:home.x,y:home.y};
   const dG=dist(g,h);
-  if(!g.dead&&g.fallen>0&&h.role!=='raider'&&dG<1800)return{k:'head'};
+  if(!g.dead&&g.fallen>0&&dG<1800)return{k:'head'};
+  const hurt=Object.values(g.parts).some(q=>q.hp<q.max*.5);
+  if(h.role==='raider'&&!g.dead&&g.fallen<=0&&dG<1800&&!h.kits.cannon&&(foesAboard(h).length||hurt)){let bi=0,bd=1e9;g.feet.forEach((f,i)=>{const d=Math.hypot(f.x-h.x,f.y-h.y);if(d<bd&&f.air<=0){bd=d;bi=i}});return{k:'foot',i:bi}}
   const want=h.role==='raider'?'cannon':'spike';
   if(!g.dead&&h.kits[want]>0&&dG<2000){
     // raiders only arm the giant when it is not heading for their town
@@ -478,8 +521,8 @@ function pickGoal(h){const g=S.g;
   if(h.quest&&h.quest.k==='gather'){let b=null,bd=1e9;for(const c of S.crystals){const d=dist(c,h);if(d<bd){bd=d;b=c}}if(b)return{k:'crystal',x:b.x,y:b.y}}
   let b=null,bd=1e9;for(const m of S.monsters){const d=dist(m,h)+(m.kind==='troll'&&h.lvl<3?600:0);if(d<bd){bd=d;b=m}}
   return b?{k:'monster',id:b.id}:null}
-function botShop(h){const t=townAt(h);const want=h.role==='raider'?(t&&t.tier>=1?'cannon':'spike'):'spike';
-  while(h.kits[want]<2&&h.gold>=C.COST[want]){h.gold-=C.COST[want];h.kits[want]++}
+function botShop(h){chooseStance(h);const t=townAt(h);const want=h.role==='raider'?(t&&t.tier>=1?'cannon':null):'spike';
+  while(want&&h.kits[want]<2&&h.gold>=C.COST[want]){h.gold-=C.COST[want];h.kits[want]++}
   if(!h.potions&&h.gold>=C.COST.potion){h.gold-=C.COST.potion;h.potions++}
   if(h.gold>=C.COST.sword){h.gold-=C.COST.sword;h.atk+=4}
   if(t&&t.tier>=2&&h.gold>=C.COST.armor&&h.def<15){h.gold-=C.COST.armor;h.def+=3}}
@@ -488,7 +531,7 @@ function botGiant(dt){const g=S.g;if(g.dead||g.fallen>0)return;g.botT-=dt;
   const alive=S.towns.filter(t=>t.alive);
   if(!g.target||!g.target.alive||g.botT<=0){g.botT=25;
     alive.sort((a,b)=>dist(a,g)-dist(b,g));const t=alive[rnd()<.75?0:Math.min(1,alive.length-1)];g.target=t||null}
-  const climbersNow=S.humans.filter(h=>h.mode==='climb'&&h.role!=='raider').length;
+  const climbersNow=S.humans.filter(h=>h.mode==='climb'&&sideOf(h)!=='raider').length;
   const legLow=Math.min(g.parts.lleg.hp/g.parts.lleg.max,g.parts.rleg.hp/g.parts.rleg.max);
   if(g.resting&&(legLow>.85||climbersNow>=1))g.resting=false;
   if(!g.resting&&legLow<.4&&climbersNow===0)g.resting=true;
@@ -496,7 +539,7 @@ function botGiant(dt){const g=S.g;if(g.dead||g.fallen>0)return;g.botT-=dt;
   const t=g.resting?null:g.target;if(t){const d=dist(g,t);if(d>t.r+160){g.tx=t.x;g.ty=t.y}else{g.tx=t.x+Math.cos(S.t*.2)*200;g.ty=t.y+Math.sin(S.t*.2)*200}
     if(d<C.SMASH_REACH+t.r)giantDo('smash')}
   const climbers=S.humans.filter(h=>h.mode==='climb');
-  const hostile=climbers.filter(h=>h.role!=='raider').length;
+  const hostile=climbers.filter(h=>sideOf(h)!=='raider').length;
   if(hostile>=2||(hostile>=1&&rnd()<dt*.15))giantDo('shake');
   let nearF=0;for(const h of S.humans)if(!h.dead&&h.mode==='ground')for(const f of g.feet)if(Math.hypot(f.x-h.x,f.y-h.y)<C.STOMP_R*.9)nearF++;
   if(nearF>=2)giantDo('stomp')}
@@ -656,7 +699,7 @@ function openHelp(back){showMenu('How to play',`
 <p><b>The giant</b> walks slowly toward wherever you point it. Each footfall crushes whatever is under the foot, and its shadow shows where the next step lands. <b>Stomp</b> shakes the ground around both feet, <b>Smash</b> brings a fist down on a town in reach, and <b>Shake</b> rattles climbers off its body and knocks spikes loose. The giant is heavy: it takes seconds to reach full stride and to stop, and the faster it walks the wider it turns, so slow down for a tight turn. The dotted trail shows where it will walk. Every footstep leaves a lake that slows anyone wading through it, and sky crystals wash up at their edges. Stand still for five seconds and the giant turns to stone: it heals four times as fast, but climbers hold on without tiring. The giant wins when only one of the three peoples has a settlement left.</p>
 <p><b>Settlements</b> start as small camps far apart. Gold from finished quests makes your home grow into a village, a town and then a city, with more walls and a better shop. A city sends settlers to found a new camp, usually beside one of the giant's footprint lakes. The grey stone hills are old giants that turned to stone long ago, and trolls lair around them.</p>
 <p><b>Humans</b> take quests in town, hunt beasts and gather sky crystals for gold, and spend it at the town shop. Walk up to a planted foot and <b>Climb</b>. On the body, grip drains, faster while moving. Rest on the back to regain it. When the giant tenses, hold still to brace.</p>
-<p><b>Spikes</b> bleed a body part. Cripple one leg and the giant slows. Cripple both and it falls, putting its head on the ground. Slay the head to win. <b>Cannons</b> mounted on the arms or back fire at every town except the builder's. Rival bots will arm the giant against you, so wreck their cannons.</p>
+<p><b>Cut it down or arm it.</b> Spikes bleed a body part. Cripple one leg and the giant slows; cripple both and it falls, putting its head on the ground, and slaying the head wins. Or build on it: <b>Cannons</b> on the arms or back fire on anyone of another people coming to cut the giant down, and otherwise shell every rival settlement in range. <b>Mend</b> patches a hurt part, <b>Pull spike</b> prises out a rival's spike, and on any hold you can <b>Shove</b> a climber of another people to loosen their grip. If the giant destroys every people but yours, you win with it. Each people turns on the giant while it walks toward their home, and dreads it more with every settlement it flattens.</p>
 <p class="dim">Camera: drag the view to turn and tilt, pinch or scroll to zoom. Keys Q and E turn, R and F zoom, T and G tilt, C resets. Gamepad right stick turns and tilts, triggers zoom, right stick click resets. Movement always follows the camera.</p>
 <p class="dim">Keys: move with WASD or arrows, actions J K L H, pause Esc. Gamepad: left stick, A B X Y, Start. Touch: drag the left pad or tap the map, and use the buttons.</p>`,
   [{id:'back',label:'Back',go:back}],back)}
@@ -729,23 +772,62 @@ function stone(c,x,y,r,base,lite,dark,seed){if(r<.6)return;c.fillStyle=dark;rock
   if(r>6){c.fillStyle=dark;c.globalAlpha*=.5;c.beginPath();c.arc(x+r*((seed%7)/14-.2),y+r*.35,r*.18,0,7);c.fill();c.globalAlpha/=.5}}
 const STONE={ok:['#9a8f80','#c2b6a2','#5c544a'],hurt:['#8f7766','#b39a86','#563f35'],crip:['#7a4a3a','#9c6450','#3e231b'],moss:['#87896c','#b0b18f','#4e5440'],dead:['#5e5852','#7a736b','#2f2b27']};
 function partStone(g,k){if(g.dead)return STONE.dead;const p=g.parts[k];if(p.crip)return STONE.crip;if(g.rooted)return STONE.moss;return p.hp/p.max<.5?STONE.hurt:STONE.ok}
+const ease=u=>u<=0?0:u>=1?1:u*u*(3-2*u);
+const mixP=(a,b,u)=>({lat:a.lat+(b.lat-a.lat)*u,fw:a.fw+(b.fw-a.fw)*u,z:a.z+(b.z-a.z)*u});
+const HANG=s=>({lat:s*440,fw:70,z:680});
+// the giant's pose this frame, from its wind-up, the strike that just landed, its stride and its fall.
+// Presentation only: it reads the sim and changes nothing in it.
+function giantPose(g){const P={lift:0,lean:0,hand:[null,null],jit:0,lie:0};
+  if(!g.cd){P.lie=1;return P} // the old stone giants lie where they fell
+  const t=S.t;
+  if(g.dead)P.lie=g.deadAt<0?1:ease((t-g.deadAt)/1.8);
+  else if(g.fallen>0)P.lie=ease(Math.min((C.FALL_TIME-g.fallen)/1.6,g.fallen/1.6));
+  // stride: the body rises mid-step and the arms swing against the legs
+  const air=g.feet.findIndex(ft=>ft.air>0),sp=clamp(g.v/C.G_SPEED,0,1);
+  if(air>=0){const u=Math.sin((1-g.feet[air].air/g.feet[air].dur)*Math.PI),sw=(air?1:-1)*u*90*sp;P.lift+=28*u*sp;
+    P.hand=[{lat:-440,fw:70+sw,z:680+Math.abs(sw)*.4},{lat:440,fw:70-sw,z:680+Math.abs(sw)*.4}]}
+  if(g.rooted)P.lift-=45;
+  const w=g.wind,a=g.anim,since=a?t-a.t:99;
+  const local=(x,y)=>{const f=fwd(g),dx=x-g.x,dy=y-g.y;return{lat:dx*-f.y+dy*f.x,fw:dx*f.x+dy*f.y,z:90}};
+  if(w&&w.k==='stomp'){const u=ease(1-w.t/C.STOMP_WIND);P.lift+=170*u;P.lean-=40*u;
+    P.hand=[-1,1].map((s,i)=>mixP(P.hand[i]||HANG(s),{lat:s*600,fw:30,z:1750},u))}
+  else if(a&&a.k==='stomp'&&since<1.3){const slam=ease(since/.12),back=ease((since-.5)/.8),lift=170+(-130-170)*slam;P.lift+=lift*(1-back);P.lean+=60*slam*(1-back);
+    P.hand=[-1,1].map((s,i)=>{const up={lat:s*600,fw:30,z:1750},down={lat:s*560,fw:200,z:420};return mixP(mixP(up,down,slam),P.hand[i]||HANG(s),back)})}
+  if(w&&w.k==='smash'){const u=ease(1-w.t/C.SMASH_WIND),i=w.s<0?0:1;P.lean-=90*u;P.lift+=40*u;
+    P.hand[i]=mixP(P.hand[i]||HANG(w.s),{lat:w.s*240,fw:-160,z:2380},u);P.hand[1-i]=mixP(P.hand[1-i]||HANG(-w.s),{lat:-w.s*420,fw:200,z:900},u*.6)}
+  else if(a&&a.k==='smash'&&since<1.5){const i=a.s<0?0:1,hit=ease(since/.16),back=ease((since-.65)/.85),tgt=local(a.x,a.y);
+    P.lean+=(-90+(130+90)*hit)*(1-back);P.lift-=60*hit*(1-back);
+    P.hand[i]=mixP(mixP({lat:a.s*240,fw:-160,z:2380},tgt,hit),P.hand[i]||HANG(a.s),back)}
+  if(w&&w.k==='shake'){const u=1-w.t/C.SHAKE_WIND;P.jit=18+40*u;P.lift-=50*ease(u)}
+  else if(a&&a.k==='shake'&&since<1){P.jit=90*(1-since);P.lift+=30*(1-since)}
+  return P}
 // the giant as a cloud of boulders in world space, each tagged with the part it belongs to
 function giantBoulders(g){const f=fwd(g),side={x:-f.y,y:f.x};const out=[];let n=0;
-  const lie=g.fallen>0||g.dead;
+  const P=giantPose(g),lie=P.lie,t=S?S.t:0;
   const put=(lat,fw,z,r,part)=>{n++;const jit=1+((n*37)%11-5)/40;
-    if(lie){out.push({x:g.x+f.x*(z*.45+fw*.3)+side.x*lat,y:g.y+f.y*(z*.45+fw*.3)+side.y*lat,z:r*.75+20,r:r*jit,part,n});return}
-    out.push({x:g.x+f.x*fw+side.x*lat,y:g.y+f.y*fw+side.y*lat,z,r:r*jit,part,n})};
-  // legs: from each foot up to its hip
+    const up=part!=='lleg'&&part!=='rleg'||z>500,k=up?clamp((z-400)/1300,0,1):0;
+    if(P.jit&&up){lat+=P.jit*k*Math.sin(t*41+n*2.3);fw+=P.jit*.6*k*Math.cos(t*37+n*1.7)}
+    const sx=g.x+f.x*(fw+P.lean*k)+side.x*lat,sy=g.y+f.y*(fw+P.lean*k)+side.y*lat;
+    if(lie<=0){out.push({x:sx,y:sy,z,r:r*jit,part,n});return}
+    // lying: the body tips forward onto the ground along its facing
+    const lx=g.x+f.x*(z*.45+fw*.3)+side.x*lat,ly=g.y+f.y*(z*.45+fw*.3)+side.y*lat,lz=r*.75+20;
+    out.push({x:sx+(lx-sx)*lie,y:sy+(ly-sy)*lie,z:z+(lz-z)*lie,r:r*jit,part,n})};
+  const L=P.lift;
+  // legs: from each foot up to its hip, which rides up and down with the body
   g.feet.forEach((ft,i)=>{const s=i?1:-1,lift=ft.air>0?Math.sin((1-ft.air/ft.dur)*Math.PI)*170:0;
     const fl={x:ft.x-g.x,y:ft.y-g.y};const flat=fl.x*side.x+fl.y*side.y,ffw=fl.x*f.x+fl.y*f.y;
-    for(let j=0;j<8;j++){const t=j/7;put(flat+(s*80-flat)*t,ffw*(1-t)+10*t,40+lift*(1-t)+(950-40-lift)*t,j===0?105:88+t*20,i?'rleg':'lleg')}});
+    for(let j=0;j<8;j++){const t=j/7;put(flat+(s*80-flat)*t,ffw*(1-t)+10*t,40+lift*(1-t)+(950+L-40-lift)*t,j===0?105:88+t*20,i?'rleg':'lleg')}});
   // torso, rows of boulders widening to the shoulders
-  [[980,150,3,120],[1120,210,4,125],[1260,260,4,130],[1400,300,5,130],[1520,330,5,125]].forEach(([z,w,m,r])=>{for(let j=0;j<m;j++){const lat=-w+2*w*j/(m-1);put(lat,-40+((j*13)%3)*25,z,r,'torso')}});
-  put(0,-110,1250,150,'torso');put(0,60,1200,140,'torso');
-  // arms hang from the shoulders
-  for(const s of[-1,1])for(let j=0;j<7;j++){const t=j/6;put(s*(380+t*60),20+t*50,1500-t*820,j===6?105:118-t*30,s<0?'larm':'rarm')}
+  [[980,150,3,120],[1120,210,4,125],[1260,260,4,130],[1400,300,5,130],[1520,330,5,125]].forEach(([z,w,m,r])=>{for(let j=0;j<m;j++){const lat=-w+2*w*j/(m-1);put(lat,-40+((j*13)%3)*25,z+L,r,'torso')}});
+  put(0,-110,1250+L,150,'torso');put(0,60,1200+L,140,'torso');
+  // arms from the shoulders to the hands, which the pose places; a bend at the elbow
   // the head sits low between the shoulders
-  put(0,70,1690,118,'head');put(0,110,1640,80,'head');
+  put(0,70,1690+L,118,'head');put(0,110,1640+L,80,'head');
+  // arms from the shoulders to the hands, which the pose places, bent at the elbow; drawn last so a
+  // stretched arm can take more boulders without reshaping the rest
+  for(const s of[-1,1]){const hd=P.hand[s<0?0:1]||HANG(s),sh={lat:s*380,fw:20,z:1500+L},hz=hd.z+(P.hand[s<0?0:1]?0:L);
+    const m=Math.max(7,Math.round(Math.hypot(hd.lat-sh.lat,hd.fw-sh.fw,hz-sh.z)/120));
+    for(let j=0;j<m;j++){const t=j/(m-1),bend=Math.sin(t*Math.PI)*60;put(sh.lat+(hd.lat-sh.lat)*t+s*bend,sh.fw+(hd.fw-sh.fw)*t,sh.z+(hz-sh.z)*t,j===m-1?105:118-t*30,s<0?'larm':'rarm')}}
   return out}
 function partAnchor(g,k){const f=fwd(g),side={x:-f.y,y:f.x};const lie=g.fallen>0||g.dead;
   const A={lleg:[-80,0,480],rleg:[80,0,480],torso:[0,-150,1300],larm:[-420,40,1250],rarm:[420,40,1250],head:[0,120,1720]}[k];
@@ -866,6 +948,7 @@ function drawBodyPanel(c,isGiant){if(!isGiant)return;const g=S.g;const w=Math.mi
 let climbL=null;
 function renderClimb(c,h){const g=S.g;const gr=c.createLinearGradient(0,0,0,view.h);gr.addColorStop(0,'#6f8396');gr.addColorStop(.75,'#c9bca2');gr.addColorStop(1,'#8b8a62');c.fillStyle=gr;c.fillRect(0,0,view.w,view.h);
   let sx=0,sy=0;if(view.shake>0){sx=(Math.random()-.5)*view.shake;sy=(Math.random()-.5)*view.shake;view.shake*=.85}
+  const pose=giantPose(g);if(pose.jit){sx+=Math.sin(S.t*41)*pose.jit*.12;sy+=Math.cos(S.t*37)*pose.jit*.08}
   const size=Math.min(view.w,view.h)*.07;const bw=Math.min(view.w*.9,view.h*.75),bh=view.h*.86;const bx=(view.w-bw)/2+sx,by=view.h*.06+sy;
   c.fillStyle='#6f7a52';c.fillRect(0,by+bh*1.0,view.w,view.h);
   const L=bodyLayout(bx,by,bw,bh*.8);climbL={L,size};
