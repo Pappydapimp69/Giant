@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Colossus Roams</title>
+<style>
+:root{--bg:#141a14;--panel:#1d241f;--ink:#f2efe4;--dim:#b9b4a4;--accent:#ffd36b;--bad:#ff8a7a;--line:#3b463c}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px/1.3 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none}
+#app{position:fixed;inset:0;height:100dvh;max-width:100vw;overflow:hidden;display:grid;grid-template-rows:auto 1fr auto;grid-template-columns:1fr;grid-template-areas:"hud" "stage" "pad"}
+#hud{grid-area:hud;min-width:0;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;padding:6px 10px;padding-top:max(6px,env(safe-area-inset-top));background:var(--panel);border-bottom:1px solid var(--line);min-height:34px;font-size:14px}
+#hud b{color:var(--accent);font-weight:600}
+#hud .q{flex-basis:100%;color:var(--dim);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#stage{grid-area:stage;position:relative;min-height:0;touch-action:none}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#toast{position:absolute;left:50%;top:10px;transform:translateX(-50%);background:rgba(10,12,10,.82);color:var(--ink);padding:6px 12px;border-radius:8px;font-size:14px;pointer-events:none;max-width:92%;text-align:center;opacity:0;transition:opacity .2s}
+#toast.on{opacity:1}
+#pad{grid-area:pad;display:flex;gap:8px;padding:8px 10px;padding-bottom:max(8px,env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);touch-action:none}
+#stick{flex:0 0 40%;min-height:120px;border-radius:12px;background:#0f140f;border:1px dashed var(--line);position:relative;display:none;touch-action:none}
+#stick span{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:var(--dim);font-size:12px;pointer-events:none;text-align:center}
+body.touch #stick{display:block}
+#btns{flex:1 1 0;min-width:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+body.touch #btns{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ab{min-height:48px;min-width:0;overflow:hidden;border-radius:10px;border:2px solid #556a57;background:#2a352c;color:var(--ink);font:600 14px system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2px 4px;touch-action:none;position:relative}
+.ab small{font-weight:400;font-size:11px;color:var(--dim);line-height:1.1;text-align:center}
+.ab .k{position:absolute;top:2px;left:5px;font-size:10px;color:var(--accent);font-weight:700}
+.ab.off{opacity:.55;border-style:dashed}
+.ab.hot{background:#3d5a40;border-color:var(--accent)}
+.ab:active{background:#45604a}
+@media (orientation:landscape) and (max-height:560px){
+  #app{grid-template-columns:auto 1fr auto;grid-template-rows:auto 1fr;grid-template-areas:"hud hud hud" "lpad stage rpad"}
+  #pad{display:contents}
+  #stick{grid-area:lpad;width:170px;margin:6px;margin-left:max(6px,env(safe-area-inset-left))}
+  #btns{grid-area:rpad;width:180px;margin:6px;margin-right:max(6px,env(safe-area-inset-right));padding-bottom:env(safe-area-inset-bottom);align-content:center;grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+  body:not(.touch) #app{grid-template-columns:0 1fr auto}
+}
+.ov{position:absolute;inset:0;background:rgba(8,10,8,.86);display:none;align-items:center;justify-content:center;z-index:10;padding:16px;overflow:auto}
+.ov.on{display:flex}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;max-width:480px;width:100%;max-height:100%;overflow:auto}
+.card h1{margin:0 0 4px;font-size:26px;color:var(--accent)}
+.card h2{margin:0 0 8px;font-size:20px;color:var(--accent)}
+.card p{margin:6px 0;color:var(--ink)}
+.card .dim{color:var(--dim);font-size:13px}
+.mb{display:block;width:100%;min-height:48px;margin:8px 0;border-radius:10px;border:2px solid #556a57;background:#2a352c;color:var(--ink);font:600 16px system-ui,sans-serif;text-align:left;padding:8px 12px}
+.mb small{display:block;font-weight:400;font-size:12px;color:var(--dim)}
+.mb.focus{border-color:var(--accent);background:#3d5a40;outline:none}
+.mb.off{opacity:.6;border-style:dashed}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}
+#build{position:absolute;right:6px;bottom:6px;font-size:10px;color:#7d8a7e;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hud"><span id="hudTxt">Colossus Roams</span><span class="q" id="hudQ"></span></div>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="toast"></div>
+    <div id="build">build 2026-11-18a</div>
+    <div class="ov on" id="ovTitle"><div class="card">
+      <h1>Colossus Roams</h1>
+      <p class="dim">A giant two thousand feet tall walks the land. Below it, three towns go about their quests. Some will arm it against their rivals. Some will cut it down.</p>
+      <div id="titleBtns"></div>
+      <p class="dim" id="record"></p>
+    </div></div>
+    <div class="ov" id="ovMenu"><div class="card"><h2 id="menuH"></h2><div id="menuBody"></div><div id="menuBtns"></div></div></div>
+  </div>
+  <div id="pad">
+    <div id="stick"><span>Drag to move<br>or tap the map</span></div>
+    <div id="btns"></div>
+  </div>
+</div>
+<script>
+'use strict';
+// ---------- rng ----------
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+let rnd=mulberry32(1);
+const rr=(a,b)=>a+(b-a)*rnd();
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+
+// ---------- constants ----------
+const C={
+  MAP:5200, DT:1/30,
+  G_SPEED:42, G_STEP:2.6, FOOT_R:95, CRUSH_DMG:120, CRUSH_TOWN:35,
+  STOMP_CD:8, STOMP_R:230, STOMP_DMG:55, STOMP_TOWN:70, STOMP_WIND:1.0,
+  SMASH_CD:10, SMASH_REACH:520, SMASH_R:170, SMASH_DMG:90, SMASH_TOWN:150, SMASH_WIND:1.3,
+  SHAKE_CD:11, SHAKE_WIND:1.1, SHAKE_GRIP:55, SHAKE_GRIP_BRACED:18, SHAKE_SPIKE:0.35,
+  FALL_TIME:20, REGEN:2, TOWN_HP:1900,
+  H_SPEED:150, CLIMB_TIME:2.4, GRIP_IDLE:2.2, GRIP_MOVE:6, GRIP_REST:9,
+  CANNON_CD:2.6, CANNON_RANGE:760, CANNON_TOWN:28, CANNON_HUM:22,
+  SPIKE_DPS:2.6, SLOTS:2,
+  COST:{spike:30,cannon:55,sword:60,armor:50,potion:15},
+};
+const PARTS={
+  lleg:{name:'Left leg',max:1400,sx:-.16,sy:.24,h:500},
+  rleg:{name:'Right leg',max:1400,sx:.16,sy:.24,h:500},
+  torso:{name:'Back',max:600,sx:0,sy:.58,h:1250},
+  larm:{name:'Left arm',max:420,sx:-.36,sy:.56,h:1300},
+  rarm:{name:'Right arm',max:420,sx:.36,sy:.56,h:1300},
+  head:{name:'Head',max:2600,sx:0,sy:.86,h:1900},
+};
+const ADJ={lleg:['torso'],rleg:['torso'],torso:['lleg','rleg','larm','rarm','head'],larm:['torso'],rarm:['torso'],head:['torso']};
+const TOWNS=[
+  {name:'Ashford',col:'#7cc4ff',shape:'circle'},
+  {name:'Brindle',col:'#ffb35c',shape:'square'},
+  {name:'Corvel',col:'#e59cff',shape:'diamond'},
+];
+
+// ---------- save ----------
+const SAVE_KEY='colossus-roams.v1';
+let save={v:1,giantWins:0,giantLosses:0,humanWins:0,humanLosses:0,sound:true,reduced:matchMedia('(prefers-reduced-motion: reduce)').matches};
+try{const s=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');if(s&&s.v===1)save=Object.assign(save,s)}catch(e){}
+function persist(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(save))}catch(e){}}
+
+// ---------- audio ----------
+let actx=null;
+function unlockAudio(){if(actx||!save.sound)return;try{actx=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}if(actx&&actx.state==='suspended')actx.resume()}
+function tone(f,dur,type,vol,slide){if(!actx||!save.sound)return;const t=actx.currentTime,o=actx.createOscillator(),g=actx.createGain();o.type=type||'sine';o.frequency.setValueAtTime(f,t);if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(20,slide),t+dur);g.gain.setValueAtTime(vol||.2,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);o.connect(g).connect(actx.destination);o.start(t);o.stop(t+dur+.02)}
+let sndBudget=0;
+function sfx(k,near){if(near===false||sndBudget>6)return;sndBudget++;
+  if(k==='step')tone(55,.35,'sine',.35,30);
+  else if(k==='stomp')tone(70,.7,'triangle',.5,25);
+  else if(k==='smash')tone(90,.6,'sawtooth',.25,30);
+  else if(k==='hit')tone(320,.08,'square',.08,160);
+  else if(k==='coin')tone(880,.12,'sine',.12,1320);
+  else if(k==='cannon')tone(140,.25,'square',.12,60);
+  else if(k==='warn')tone(440,.25,'triangle',.15,300);
+  else if(k==='build')tone(600,.15,'triangle',.15,900);
+}
+
+// ---------- state ----------
+let S=null;
+function newGame(role,seed){
+  rnd=mulberry32(seed|0);
+  const M=C.MAP,cx=M/2,cy=M/2;
+  const towns=TOWNS.map((t,i)=>{const a=-Math.PI/2+i*Math.PI*2/3;return{i,name:t.name,col:t.col,shape:t.shape,x:cx+Math.cos(a)*1900,y:cy+Math.sin(a)*1900,r:150,hp:C.TOWN_HP,max:C.TOWN_HP,alive:true}});
+  const parts={};for(const k in PARTS)parts[k]={hp:PARTS[k].max,max:PARTS[k].max,crip:false,builds:[]};
+  const g={x:cx,y:cy+150,ang:-Math.PI/2,tx:null,ty:null,parts,fallen:0,dead:false,
+    feet:[{x:cx-80,y:cy+150,air:0,lx:0,ly:0},{x:cx+80,y:cy+150,air:0,lx:0,ly:0}],stepT:0,active:0,
+    cd:{stomp:2,smash:3,shake:4},wind:null,botT:0,targetTown:null,kills:0};
+  S={role,seed,t:0,towns,g,humans:[],monsters:[],crystals:[],shots:[],fx:[],msgs:[],over:null,nextId:1,camZoom:1};
+  const youTown=0;
+  // humans
+  const roles=['warden','raider','warden','warden','raider','warden','raider','warden','warden'];
+  let n=0;
+  for(let ti=0;ti<3;ti++)for(let k=0;k<3;k++){
+    const isYou=role==='human'&&ti===youTown&&k===0;
+    S.humans.push(mkHuman(ti,isYou,isYou?'you':roles[n++%roles.length]));
+  }
+  for(let i=0;i<46;i++)spawnMonster();
+  for(let i=0;i<30;i++)spawnCrystal();
+  S.you=role==='human'?S.humans[0]:null;
+  return S;
+}
+function mkHuman(ti,isYou,role){const t=S.towns[ti];
+  return{id:S.nextId++,town:ti,you:isYou,role,x:t.x+rr(-60,60),y:t.y+rr(-60,60),hp:100,max:100,atk:10,def:0,lvl:1,xp:0,gold:25,
+    kits:{spike:0,cannon:0},potions:1,quest:null,mode:'ground',part:null,to:null,prog:0,grip:100,cd:0,dead:0,lastAct:-9,
+    tx:null,ty:null,goal:null,think:0,face:0,swing:0,name:isYou?'You':TOWNS[ti].name+' '+(['warden','raider'].includes(role)?role:'')}}
+function spawnMonster(){const M=C.MAP;let x,y,ok=false;
+  for(let k=0;k<20&&!ok;k++){x=rr(150,M-150);y=rr(150,M-150);ok=S.towns.every(t=>Math.hypot(t.x-x,t.y-y)>480)}
+  const troll=rnd()<.22;S.monsters.push({id:S.nextId++,kind:troll?'troll':'wolf',x,y,hp:troll?90:32,max:troll?90:32,atk:troll?13:6,gold:troll?24:9,xp:troll?30:12,r:troll?20:13,cd:0,hx:x,hy:y})}
+function spawnCrystal(){const M=C.MAP;S.crystals.push({id:S.nextId++,x:rr(200,M-200),y:rr(200,M-200)})}
+
+// ---------- messages ----------
+function say(text,who){if(who&&!who.you&&!(S.role==='giant'&&who==='giant'))return;S.msgs.push({text,t:S.t});toast(text)}
+function announce(text){S.msgs.push({text,t:S.t});toast(text)}
+
+// ---------- giant helpers ----------
+function fwd(g){return{x:Math.cos(g.ang),y:Math.sin(g.ang)}}
+function headPos(g){const f=fwd(g);return g.fallen>0?{x:g.x+f.x*820,y:g.y+f.y*820}:{x:g.x+f.x*40,y:g.y+f.y*40}}
+function legOk(g,k){return !g.parts[k].crip}
+function giantSpeed(g){let s=C.G_SPEED;if(g.parts.lleg.crip)s*=.5;if(g.parts.rleg.crip)s*=.5;return s}
+function armReady(g){return !g.parts.larm.crip||!g.parts.rarm.crip}
+function canGiant(k){const g=S.g;
+  if(g.dead)return'The giant is dead';
+  if(g.fallen>0)return'Fallen: cannot '+k;
+  if(g.wind)return'Busy';
+  if(g.cd[k]>0)return'Ready in '+Math.ceil(g.cd[k])+'s';
+  if(k==='smash'&&!armReady(g))return'Both arms crippled';
+  if(k==='shake'&&g.parts.torso.crip)return'Back crippled';
+  return null}
+function giantDo(k){const why=canGiant(k);if(why){if(S.role==='giant')toast(why);return false}
+  const g=S.g;let wind={k,t:k==='stomp'?C.STOMP_WIND:k==='smash'?C.SMASH_WIND:C.SHAKE_WIND};
+  if(k==='smash'){let best=null,bd=1e9;for(const t of S.towns)if(t.alive){const d=dist(g,t);if(d<C.SMASH_REACH+t.r&&d<bd){bd=d;best=t}}
+    let ang=g.ang,d=C.SMASH_REACH*.8;if(best){ang=Math.atan2(best.y-g.y,best.x-g.x);d=Math.min(C.SMASH_REACH,bd)}
+    wind.x=g.x+Math.cos(ang)*d;wind.y=g.y+Math.sin(ang)*d}
+  if(k==='shake'){for(const h of S.humans)if(h.mode==='climb'&&h.you)toast('The giant tenses! Hold still to brace.');sfx('warn')}
+  g.wind=wind;g.cd[k]=k==='stomp'?C.STOMP_CD:k==='smash'?C.SMASH_CD:C.SHAKE_CD;return true}
+function resolveWind(){const g=S.g,w=g.wind;
+  if(w.k==='stomp'){sfx('stomp');shakeCam(14);
+    for(const f of g.feet){S.fx.push({k:'ring',x:f.x,y:f.y,r:C.STOMP_R,t:0,life:.6,col:'#ffd36b'});
+      hurtArea(f.x,f.y,C.STOMP_R,C.STOMP_DMG,C.STOMP_TOWN,'stomp')}}
+  else if(w.k==='smash'){sfx('smash');shakeCam(18);S.fx.push({k:'ring',x:w.x,y:w.y,r:C.SMASH_R,t:0,life:.7,col:'#ff8a7a'});
+    hurtArea(w.x,w.y,C.SMASH_R,C.SMASH_DMG,C.SMASH_TOWN,'smash')}
+  else if(w.k==='shake'){shakeCam(10);let knocked=0,spikes=0;
+    for(const h of S.humans)if(h.mode==='climb'){const braced=S.t-h.lastAct>C.SHAKE_WIND&&!h.to;
+      h.grip-=braced?C.SHAKE_GRIP_BRACED:C.SHAKE_GRIP;if(h.you)toast(braced?'Braced! You held on.':'Shaken! Your grip slips.');if(h.grip<=0)knocked++}
+    for(const k in g.parts){const p=g.parts[k];p.builds=p.builds.filter(b=>{if(b.k==='spike'&&rnd()<C.SHAKE_SPIKE){spikes++;return false}return true})}
+    if(S.role==='giant')toast('Shake! '+(spikes?spikes+' spike'+(spikes>1?'s':'')+' fell. ':'')+(knocked?knocked+' climber'+(knocked>1?'s':'')+' lost grip.':''))}
+  g.wind=null}
+function hurtArea(x,y,r,dmg,tdmg,why){
+  for(const h of S.humans)if(h.mode==='ground'&&!h.dead&&Math.hypot(h.x-x,h.y-y)<r+10)hurtHuman(h,dmg,why);
+  for(const m of S.monsters)if(Math.hypot(m.x-x,m.y-y)<r+m.r)m.hp-=dmg;
+  for(const t of S.towns)if(t.alive&&Math.hypot(t.x-x,t.y-y)<r+t.r)hurtTown(t,tdmg)}
+function hurtTown(t,d){t.hp-=d;if(t.hp<=0&&t.alive){t.hp=0;t.alive=false;S.g.kills++;announce(t.name+' has been destroyed!');sfx('smash')}}
+function hurtHuman(h,d,why){if(h.dead)return;d=Math.max(d*.3,d-h.def);h.hp-=d;
+  if(h.you){shakeCam(6);if(why&&h.hp>0)toast(why==='crush'?'Crushed under a foot!':why==='stomp'?'Caught in a stomp!':why==='smash'?'Hit by the smash!':why==='cannon'?'Cannon fire!':'Ouch')}
+  if(h.hp<=0)killHuman(h,why)}
+function killHuman(h,why){h.hp=0;h.dead=6;h.mode='ground';h.part=null;h.to=null;h.tx=h.ty=null;
+  if(h.you)toast(why==='fall'?'You fell to your death. Back to town soon.':'You were killed. Back to town soon.')}
+
+// ---------- giant sim ----------
+function stepGiant(dt){const g=S.g;if(g.dead)return;
+  for(const k in g.cd)g.cd[k]=Math.max(0,g.cd[k]-dt);
+  if(g.wind){g.wind.t-=dt;if(g.wind.t<=0)resolveWind()}
+  // parts: spikes, regen
+  for(const k in g.parts){const p=g.parts[k];const sp=p.builds.filter(b=>b.k==='spike').length;
+    if(sp)damagePart(k,sp*C.SPIKE_DPS*dt,null);
+    if(g.fallen<=0&&p.hp<p.max)p.hp=Math.min(p.max,p.hp+C.REGEN*dt);
+    if(p.crip&&p.hp>=p.max*.4&&k!=='lleg'&&k!=='rleg')p.crip=false}
+  if(g.fallen>0){g.fallen-=dt;if(g.fallen<=0){g.fallen=0;for(const k of['lleg','rleg']){const p=g.parts[k];p.hp=Math.max(p.hp,p.max*.45);p.crip=false}
+      announce('The giant rises again!');
+      for(const h of S.humans)if(h.mode==='climb'&&h.part==='head'){}}
+    return}
+  // move
+  let moving=false;
+  if(g.tx!=null){const dx=g.tx-g.x,dy=g.ty-g.y,d=Math.hypot(dx,dy);
+    if(d>40){const want=Math.atan2(dy,dx);let da=((want-g.ang+Math.PI*3)%(Math.PI*2))-Math.PI;g.ang+=clamp(da,-.35*dt,.35*dt);
+      const sp=giantSpeed(g)*(Math.abs(da)>1.2?.35:1);g.x+=Math.cos(g.ang)*sp*dt;g.y+=Math.sin(g.ang)*sp*dt;moving=true}else{g.tx=g.ty=null}}
+  g.x=clamp(g.x,200,C.MAP-200);g.y=clamp(g.y,200,C.MAP-200);
+  // feet
+  const f=fwd(g),side={x:-f.y,y:f.x};
+  const air=g.feet.find(ft=>ft.air>0);
+  if(air){air.air-=dt;const k=1-air.air/air.dur;air.x=air.sx+(air.lx-air.sx)*k;air.y=air.sy+(air.ly-air.sy)*k;
+    if(air.air<=0){air.air=0;air.x=air.lx;air.y=air.ly;footLand(air)}}
+  else{
+    // pick foot farthest behind its ideal spot
+    let worst=-1,wd=0;
+    g.feet.forEach((ft,i)=>{const s=i?1:-1;const ix=g.x+side.x*s*85,iy=g.y+side.y*s*85;const d=Math.hypot(ft.x-ix,ft.y-iy);if(d>wd){wd=d;worst=i}});
+    if(wd>60||(moving&&wd>20)){const ft=g.feet[worst],s=worst?1:-1,lead=moving?giantSpeed(g)*C.G_STEP*.9:0;
+      ft.sx=ft.x;ft.sy=ft.y;ft.lx=g.x+f.x*lead+side.x*s*85;ft.ly=g.y+f.y*lead+side.y*s*85;ft.dur=C.G_STEP;ft.air=C.G_STEP;
+      for(const h of S.humans)if(h.mode==='climb'&&h.part===(worst?'rleg':'lleg')){h.grip-=4}}
+  }
+  // cannons
+  for(const k in g.parts){const p=g.parts[k];if(p.crip)continue;
+    for(const b of p.builds)if(b.k==='cannon'){b.cd-=dt;if(b.cd>0)continue;
+      const tgt=cannonTarget(b.town);if(tgt){b.cd=C.CANNON_CD;const src=partWorld(k);
+        S.shots.push({x:src.x,y:src.y,sx:src.x,sy:src.y,tx:tgt.x+rr(-30,30),ty:tgt.y+rr(-30,30),t:0,dur:Math.hypot(tgt.x-src.x,tgt.y-src.y)/700,town:b.town,owner:b.owner});
+        sfx('cannon',near(src))}else b.cd=.5}}
+}
+function partWorld(k){const g=S.g,f=fwd(g),side={x:-f.y,y:f.x};const p=PARTS[k];
+  if(k==='lleg')return g.feet[0];if(k==='rleg')return g.feet[1];
+  const along=g.fallen>0?p.sy*900:40,lat=p.sx*900;return{x:g.x+f.x*along+side.x*lat,y:g.y+f.y*along+side.y*lat}}
+function cannonTarget(town){const g=S.g;let best=null,bd=C.CANNON_RANGE;
+  for(const t of S.towns)if(t.alive&&t.i!==town){const d=dist(g,t)-t.r;if(d<bd){bd=d;best=t}}
+  if(best)return best;
+  for(const h of S.humans)if(!h.dead&&h.mode==='ground'&&h.town!==town){const d=dist(g,h);if(d<bd*.8){bd=d;best=h}}
+  return best}
+function footLand(ft){sfx('step',near(ft));shakeCam(4);
+  S.fx.push({k:'ring',x:ft.x,y:ft.y,r:C.FOOT_R*1.4,t:0,life:.5,col:'#c9b48a'});
+  hurtArea(ft.x,ft.y,C.FOOT_R,C.CRUSH_DMG,C.CRUSH_TOWN,'crush')}
+function damagePart(k,d,by){const g=S.g,p=g.parts[k];if(g.dead)return;
+  
+  p.hp-=d;if(p.hp<=0){p.hp=0;
+    if(k==='head'){g.dead=true;announce('The giant is slain!');return}
+    if(!p.crip){p.crip=true;const lost=p.builds.filter(b=>b.k==='cannon').length;p.builds=p.builds.filter(b=>b.k!=='cannon');
+      announce(PARTS[k].name+' crippled!'+(lost?' Its cannons tumble off.':''));
+      if((k==='lleg'||k==='rleg')&&g.parts.lleg.crip&&g.parts.rleg.crip){g.fallen=C.FALL_TIME;g.wind=null;shakeCam(30);sfx('stomp');
+        announce('The giant falls! Its head is on the ground. Strike now!');}}}}
+
+// ---------- humans ----------
+function townAt(h){return S.towns.find(t=>t.alive&&Math.hypot(t.x-h.x,t.y-h.y)<t.r+20)}
+function nearFoot(h){const g=S.g;if(g.dead)return null;let best=null,bd=1e9;
+  g.feet.forEach((f,i)=>{if(f.air>0)return;const d=Math.hypot(f.x-h.x,f.y-h.y);if(d<C.FOOT_R+40&&d<bd){bd=d;best=i?'rleg':'lleg'}});
+  if(g.fallen>0){const hp=headPos(g);if(Math.hypot(hp.x-h.x,hp.y-h.y)<200)best='head';
+    for(const k of['torso','larm','rarm']){const w=partWorld(k);if(Math.hypot(w.x-h.x,w.y-h.y)<160)best=best||k}}
+  return best}
+function nearMonster(h,r){let best=null,bd=r;for(const m of S.monsters){const d=Math.hypot(m.x-h.x,m.y-h.y)-m.r;if(d<bd){bd=d;best=m}}return best}
+function humanCtx(h){ // what each slot does now, with reason when unavailable
+  if(h.dead)return{A:{l:'Wait',why:'Respawning'},B:{l:'—',why:'Respawning'},X:{l:'—',why:'Respawning'},Y:{l:'—',why:'Respawning'}};
+  if(h.mode==='climb'){const p=S.g.parts[h.part];const ec=p.builds.find(b=>b.k==='cannon'&&b.town!==h.town);
+    const free=p.builds.length<C.SLOTS&&!p.crip;
+    return{A:{l:ec?'Wreck cannon':'Strike '+PARTS[h.part].name.toLowerCase(),why:h.to?'Climbing':null},
+      B:{l:(h.part==='lleg'||h.part==='rleg'||S.g.fallen>0)?'Climb down':'Let go',why:h.to?'Climbing':null},
+      X:{l:'Spike ('+h.kits.spike+')',why:h.to?'Climbing':!h.kits.spike?'No spike kits':!free?(p.crip?'Part crippled':'Part full'):null},
+      Y:{l:'Cannon ('+h.kits.cannon+')',why:h.to?'Climbing':!h.kits.cannon?'No cannon kits':!free?(p.crip?'Part crippled':'Part full'):(h.part==='lleg'||h.part==='rleg')?'Legs cannot aim':null}}}
+  const t=townAt(h),foot=nearFoot(h),m=nearMonster(h,60);
+  return{A:{l:m?'Attack':foot?'Chop ankle':'Attack',why:m||foot?null:'Nothing in reach'},
+    B:{l:'Climb',why:foot?null:'Get next to a planted foot'},
+    X:{l:'Town',why:t?(t.i===h.town||true?null:null):'Go inside a town'},
+    Y:{l:'Potion ('+h.potions+')',why:!h.potions?'No potions':h.hp>=h.max?'Full health':null}}}
+function humanAct(h,slot){const c=humanCtx(h)[slot];if(c.why){if(h.you)toast(c.why);return false}
+  h.lastAct=S.t;
+  if(h.mode==='climb'){const g=S.g,p=g.parts[h.part];
+    if(slot==='A'){if(h.cd>0)return false;h.cd=.6;h.swing=.2;const ec=p.builds.find(b=>b.k==='cannon'&&b.town!==h.town);
+      if(ec){ec.hp-=h.atk;if(ec.hp<=0){p.builds.splice(p.builds.indexOf(ec),1);if(h.you)toast('Cannon wrecked!');gainXp(h,15)}}
+      else{damagePart(h.part,h.atk*.5,h);gainXp(h,1)}sfx('hit',h.you);return true}
+    if(slot==='B'){dismount(h,h.part==='lleg'||h.part==='rleg'||g.fallen>0?'down':'fall');return true}
+    if(slot==='X'){h.kits.spike--;p.builds.push({k:'spike',town:h.town,owner:h.id});sfx('build',h.you);if(h.you)toast('Spike driven into the '+PARTS[h.part].name.toLowerCase()+'.');return true}
+    if(slot==='Y'){h.kits.cannon--;p.builds.push({k:'cannon',town:h.town,owner:h.id,hp:40,cd:1});sfx('build',h.you);if(h.you)toast('Cannon mounted. It fires at every town but yours.');return true}
+  }else{
+    if(slot==='A'){if(h.cd>0)return false;h.cd=.55;h.swing=.2;const m=nearMonster(h,60);
+      if(m){m.hp-=h.atk;sfx('hit',h.you||near(m));if(m.hp<=0)killMonster(m,h);return true}
+      const foot=nearFoot(h);if(foot){damagePart(foot,h.atk*.35,h);sfx('hit',h.you);return true}}
+    if(slot==='B'){mount(h,nearFoot(h));return true}
+    if(slot==='X'){if(h.you)openTown(townAt(h));return true}
+    if(slot==='Y'){h.potions--;h.hp=Math.min(h.max,h.hp+60);if(h.you)toast('You drink a potion.');return true}}
+  return false}
+function mount(h,part){h.mode='climb';h.part=part;h.to=null;h.prog=0;h.grip=100+(h.lvl-1)*8;h.tx=h.ty=null;if(h.you)toast('You grab hold of the '+PARTS[part].name.toLowerCase()+'. Watch your grip.')}
+function dismount(h,how){const g=S.g;const w=partWorld(h.part);const hgt=g.fallen>0?0:PARTS[h.part].h;
+  h.mode='ground';const a=rr(0,6.28),r=how==='down'?C.FOOT_R+30:rr(120,260);h.x=w.x+Math.cos(a)*r;h.y=w.y+Math.sin(a)*r;
+  const part=h.part;h.part=null;h.to=null;
+  if(how==='fall'){const dmg=hgt<600?30:hgt<1500?75:160;if(h.you)toast('You fall '+hgt+' feet!');hurtHuman(h,dmg,'fall')}}
+function climbMove(h,dir){ // dir: {x,y} in side-view (y up positive)
+  if(h.to||h.mode!=='climb')return;const here=PARTS[h.part];let best=null,bs=.3;
+  for(const k of ADJ[h.part]){const p=PARTS[k];const vx=p.sx-here.sx,vy=p.sy-here.sy,l=Math.hypot(vx,vy);const s=(vx*dir.x+vy*dir.y)/l;if(s>bs){bs=s;best=k}}
+  if(best){h.to=best;h.prog=0;h.lastAct=S.t}}
+function gainXp(h,x){h.xp+=x;while(h.xp>=h.lvl*60){h.xp-=h.lvl*60;h.lvl++;h.max+=20;h.hp=h.max;h.atk+=3;if(h.you){toast('Level up! You are level '+h.lvl+'.');sfx('coin')}}}
+function killMonster(m,h){S.monsters.splice(S.monsters.indexOf(m),1);if(h){h.gold+=m.gold;gainXp(h,m.xp);if(h.you)sfx('coin');
+  if(h.quest&&h.quest.k==='slay'){h.quest.n++;questCheck(h)}}}
+function questCheck(h){const q=h.quest;if(q.n>=q.need&&!q.done){q.done=true;if(h.you)toast('Quest done! Return to a town to claim '+q.gold+' gold.')}}
+function newQuest(h){const lv=h.lvl;if(rnd()<.55)return{k:'slay',need:2+lv,n:0,gold:30+lv*12,xp:30+lv*10,text:'Slay '+(2+lv)+' beasts in the wilds'};
+  return{k:'gather',need:2+Math.ceil(lv/2),n:0,gold:25+lv*12,xp:25+lv*10,text:'Gather '+(2+Math.ceil(lv/2))+' sky crystals'}}
+
+function stepHuman(h,dt,mv){
+  if(h.dead){h.dead-=dt;if(h.dead<=0){h.dead=0;const home=S.towns[h.town].alive?S.towns[h.town]:S.towns.find(t=>t.alive)||S.towns[h.town];
+    h.x=home.x+rr(-50,50);h.y=home.y+rr(-50,50);h.hp=h.max;h.mode='ground'}return}
+  h.cd=Math.max(0,h.cd-dt);h.swing=Math.max(0,h.swing-dt);
+  if(h.mode==='climb'){const g=S.g;
+    if(g.dead){dismount(h,'down');return}
+    if(g.fallen<=0&&(h.part==='head'||h.part==='torso')&&false){}
+    if(h.to){h.prog+=dt/C.CLIMB_TIME;if(g.fallen<=0)h.grip-=C.GRIP_MOVE*dt;if(h.prog>=1){h.part=h.to;h.to=null;h.prog=0}}
+    else if(g.fallen>0)h.grip=Math.min(100+(h.lvl-1)*8,h.grip+C.GRIP_REST*dt);
+    else if(h.part==='torso'&&S.t-h.lastAct>1)h.grip=Math.min(100+(h.lvl-1)*8,h.grip+C.GRIP_REST*dt);
+    else h.grip-=C.GRIP_IDLE*dt;
+    if(h.grip<=0){h.grip=0;if(h.you)toast('Your grip fails!');dismount(h,h.part==='lleg'||h.part==='rleg'?'fall':'fall')}
+    return}
+  // ground movement
+  let vx=mv.x,vy=mv.y;
+  if(h.tx!=null&&!vx&&!vy){const dx=h.tx-h.x,dy=h.ty-h.y,d=Math.hypot(dx,dy);if(d<12)h.tx=h.ty=null;else{vx=dx/d;vy=dy/d}}
+  else if(vx||vy)h.tx=h.ty=null;
+  if(vx||vy){h.x+=vx*C.H_SPEED*dt;h.y+=vy*C.H_SPEED*dt;h.face=Math.atan2(vy,vx)}
+  h.x=clamp(h.x,20,C.MAP-20);h.y=clamp(h.y,20,C.MAP-20);
+  // crystals
+  for(let i=S.crystals.length-1;i>=0;i--){const c=S.crystals[i];if(Math.hypot(c.x-h.x,c.y-h.y)<26){S.crystals.splice(i,1);spawnCrystal();h.gold+=3;
+    if(h.quest&&h.quest.k==='gather'){h.quest.n++;questCheck(h)}if(h.you){sfx('coin');toast('Sky crystal!'+(h.quest&&h.quest.k==='gather'?' ('+Math.min(h.quest.n,h.quest.need)+'/'+h.quest.need+')':''))}}}
+  // in town: auto heal, claim quests
+  const t=townAt(h);if(t){h.hp=Math.min(h.max,h.hp+8*dt);
+    if(h.quest&&h.quest.done){h.gold+=h.quest.gold;gainXp(h,h.quest.xp);if(h.you){toast('Quest reward: '+h.quest.gold+' gold.');sfx('coin')}h.quest=null}
+    if(!h.quest&&!h.you)h.quest=newQuest(h)}
+}
+
+// ---------- monsters ----------
+function stepMonsters(dt){
+  for(const m of S.monsters){m.cd=Math.max(0,m.cd-dt);let tgt=null,bd=260;
+    for(const h of S.humans)if(!h.dead&&h.mode==='ground'){const d=Math.hypot(h.x-m.x,h.y-m.y);if(d<bd&&!townAt(h)){bd=d;tgt=h}}
+    if(tgt){const sp=m.kind==='troll'?80:115;if(bd>m.r+14){m.x+=(tgt.x-m.x)/bd*sp*dt;m.y+=(tgt.y-m.y)/bd*sp*dt}
+      else if(m.cd<=0){m.cd=1;hurtHuman(tgt,m.atk,'beast')}}
+    else{const dx=m.hx-m.x,dy=m.hy-m.y,d=Math.hypot(dx,dy);if(d>30){m.x+=dx/d*40*dt;m.y+=dy/d*40*dt}else if(rnd()<.01){m.hx=m.x+rr(-200,200);m.hy=m.y+rr(-200,200)}}}
+  for(let i=S.monsters.length-1;i>=0;i--)if(S.monsters[i].hp<=0)S.monsters.splice(i,1);
+  while(S.monsters.length<46)spawnMonster()}
+
+// ---------- shots ----------
+function stepShots(dt){for(let i=S.shots.length-1;i>=0;i--){const s=S.shots[i];s.t+=dt/s.dur;
+  s.x=s.sx+(s.tx-s.sx)*s.t;s.y=s.sy+(s.ty-s.sy)*s.t;
+  if(s.t>=1){S.shots.splice(i,1);S.fx.push({k:'ring',x:s.tx,y:s.ty,r:60,t:0,life:.35,col:'#ffb35c'});
+    for(const t of S.towns)if(t.alive&&t.i!==s.town&&Math.hypot(t.x-s.tx,t.y-s.ty)<t.r+40){hurtTown(t,C.CANNON_TOWN);const o=S.humans.find(h=>h.id===s.owner);if(o){o.gold+=3}}
+    for(const h of S.humans)if(!h.dead&&h.mode==='ground'&&h.town!==s.town&&Math.hypot(h.x-s.tx,h.y-s.ty)<60)hurtHuman(h,C.CANNON_HUM,'cannon')}}}
+
+// ---------- bots ----------
+function botHuman(h,dt){const mv={x:0,y:0};if(h.dead)return mv;const g=S.g;
+  h.think-=dt;
+  if(h.mode==='climb'){
+    if(h.to)return mv;
+    const p=g.parts[h.part];
+    // braced during shake windup: do nothing
+    if(g.wind&&g.wind.k==='shake'&&rnd()<.7)return mv;
+    const onLeg=h.part==='lleg'||h.part==='rleg';
+    if(h.grip<30&&!g.fallen){if(onLeg){humanAct(h,'B');return mv}if(h.part!=='torso'){climbMove(h,{x:-PARTS[h.part].sx,y:PARTS.torso.sy-PARTS[h.part].sy});return mv}return mv}
+    if(h.part==='torso'&&h.grip<70&&!g.fallen)return mv;
+    let goal;
+    if(h.role==='raider'){
+      if(h.kits.cannon<=0){if(onLeg||g.fallen>0)humanAct(h,'B');else climbMove(h,{x:-PARTS[h.part].sx,y:-1});return mv}
+      goal=['larm','rarm','torso'].find(k=>g.parts[k].builds.length<C.SLOTS&&!g.parts[k].crip)||'torso';
+      if(h.part===goal){if(!humanAct(h,'Y'))humanAct(h,'A');return mv}
+    }else{
+      if(g.fallen>0)goal='head';
+      else{const ec=Object.keys(g.parts).find(k=>g.parts[k].builds.some(b=>b.k==='cannon'&&b.town===h.town?false:b.k==='cannon'));
+        goal=g.parts.lleg.crip?'rleg':g.parts.rleg.crip?'lleg':(onLeg?h.part:(g.parts.lleg.hp<g.parts.rleg.hp?'lleg':'rleg'));
+        if(ec&&h.lvl>=2&&!onLeg)goal=ec}
+      if(h.part===goal){const free=p.builds.length<C.SLOTS&&!p.crip;if(h.kits.spike&&free&&!p.builds.some(b=>b.k==='spike'&&b.owner===h.id)){humanAct(h,'X');return mv}humanAct(h,'A');return mv}
+    }
+    // path one step toward goal
+    const path=h.part==='torso'?goal:(ADJ[h.part].includes(goal)?goal:'torso');
+    if(h.part===goal)return mv;
+    if(g.fallen>0&&goal!==h.part){humanAct(h,'B');return mv} // just hop down and re-mount at head
+    h.to=path;h.prog=0;h.lastAct=S.t;return mv}
+  // ground
+  if(h.hp<h.max*.45&&h.potions&&!townAt(h))humanAct(h,'Y');
+  // flee feet and windups
+  for(const f of g.feet)if(f.air>0){const d=Math.hypot(f.lx-h.x,f.ly-h.y);if(d<C.FOOT_R+40){const dx=h.x-f.lx,dy=h.y-f.ly,l=Math.hypot(dx,dy)||1;return{x:dx/l,y:dy/l}}}
+  if(g.wind&&g.wind.k!=='shake'){const pts=g.wind.k==='stomp'?g.feet:[g.wind];const r=g.wind.k==='stomp'?C.STOMP_R:C.SMASH_R;
+    for(const p of pts){const d=Math.hypot(p.x-h.x,p.y-h.y);if(d<r+30){const dx=h.x-p.x,dy=h.y-p.y,l=Math.hypot(dx,dy)||1;return{x:dx/l,y:dy/l}}}}
+  if(h.think<=0||!h.goal){h.think=rr(.8,1.6);h.goal=pickGoal(h)}
+  const G=h.goal;if(!G)return mv;
+  let tx=G.x,ty=G.y;if(G.k==='monster'){const m=S.monsters.find(m=>m.id===G.id);if(!m){h.goal=null;return mv}tx=m.x;ty=m.y;
+    if(Math.hypot(m.x-h.x,m.y-h.y)<m.r+40){humanAct(h,'A');return mv}}
+  if(G.k==='foot'){const f=g.feet[G.i];if(f.air>0){h.goal=null;return mv}tx=f.x;ty=f.y;
+    const part=nearFoot(h);if(part){if(g.fallen>0&&h.role!=='raider'&&part!=='head'){const hp=headPos(g);tx=hp.x;ty=hp.y}else{mount(h,part);return mv}}}
+  if(G.k==='head'){const hp=headPos(g);tx=hp.x;ty=hp.y;const part=nearFoot(h);if(part==='head'){mount(h,'head');return mv}}
+  if(G.k==='shop'){const t=S.towns[G.t];if(!t.alive){h.goal=null;return mv}if(townAt(h)===t){botShop(h);h.goal=null;return mv}}
+  const dx=tx-h.x,dy=ty-h.y,d=Math.hypot(dx,dy);if(d>8){mv.x=dx/d;mv.y=dy/d}
+  if(G.k==='crystal'&&d<20)h.goal=null;
+  return mv}
+function pickGoal(h){const g=S.g;
+  const home=S.towns[h.town].alive?S.towns[h.town]:S.towns.filter(t=>t.alive).sort((a,b)=>dist(a,h)-dist(b,h))[0];
+  if(!home)return null;
+  if(h.quest&&h.quest.done)return{k:'shop',t:home.i,x:home.x,y:home.y};
+  if(h.hp<h.max*.35)return{k:'shop',t:home.i,x:home.x,y:home.y};
+  const dG=dist(g,h);
+  if(!g.dead&&g.fallen>0&&h.role!=='raider'&&dG<1800)return{k:'head'};
+  const want=h.role==='raider'?'cannon':'spike';
+  if(!g.dead&&h.kits[want]>0&&dG<2000){
+    // raiders only arm the giant when it is not heading for their town
+    const tt=g.targetTown!=null?S.towns[g.targetTown]:null;
+    if(h.role==='warden'||!tt||tt.i!==h.town){let bi=0,bd=1e9;g.feet.forEach((f,i)=>{const d=Math.hypot(f.x-h.x,f.y-h.y);if(d<bd&&f.air<=0){bd=d;bi=i}});return{k:'foot',i:bi}}}
+  if(h.role==='warden'&&h.lvl>=3&&dG<700&&!g.dead){return{k:'foot',i:rnd()<.5?0:1}}
+  if(h.gold>=C.COST[want]+(h.potions?0:C.COST.potion)&&h.kits[want]<2)return{k:'shop',t:home.i,x:home.x,y:home.y};
+  if(h.gold>=C.COST.sword+40&&h.lvl>=3&&rnd()<.3)return{k:'shop',t:home.i,x:home.x,y:home.y};
+  if(h.quest&&h.quest.k==='gather'){let b=null,bd=1e9;for(const c of S.crystals){const d=dist(c,h);if(d<bd){bd=d;b=c}}if(b)return{k:'crystal',x:b.x,y:b.y}}
+  let b=null,bd=1e9;for(const m of S.monsters){const d=dist(m,h)+(m.kind==='troll'&&h.lvl<3?600:0);if(d<bd){bd=d;b=m}}
+  return b?{k:'monster',id:b.id}:null}
+function botShop(h){const want=h.role==='raider'?'cannon':'spike';
+  while(h.kits[want]<2&&h.gold>=C.COST[want]){h.gold-=C.COST[want];h.kits[want]++}
+  if(!h.potions&&h.gold>=C.COST.potion){h.gold-=C.COST.potion;h.potions++}
+  if(h.gold>=C.COST.sword){h.gold-=C.COST.sword;h.atk+=4}}
+
+function botGiant(dt){const g=S.g;if(g.dead||g.fallen>0)return;g.botT-=dt;
+  const alive=S.towns.filter(t=>t.alive);
+  if(g.targetTown==null||!S.towns[g.targetTown].alive||g.botT<=0){g.botT=20;
+    // prefer the town with the fewest defenders nearby, ties by distance
+    alive.sort((a,b)=>dist(a,g)-dist(b,g));const t=alive[rnd()<.75?0:Math.min(1,alive.length-1)];if(t)g.targetTown=t.i}
+  const t=S.towns[g.targetTown];if(t){const d=dist(g,t);if(d>t.r+160){g.tx=t.x;g.ty=t.y}else{g.tx=t.x+Math.cos(S.t*.2)*200;g.ty=t.y+Math.sin(S.t*.2)*200}
+    if(d<C.SMASH_REACH+t.r)giantDo('smash')}
+  const climbers=S.humans.filter(h=>h.mode==='climb');
+  const hostile=climbers.filter(h=>h.role!=='raider').length;
+  if(hostile>=2||(hostile>=1&&rnd()<dt*.15))giantDo('shake');
+  let nearF=0;for(const h of S.humans)if(!h.dead&&h.mode==='ground')for(const f of g.feet)if(Math.hypot(f.x-h.x,f.y-h.y)<C.STOMP_R*.9)nearF++;
+  if(nearF>=2)giantDo('stomp')}
+// the player giant: track the town it heads for so raider bots know
+function trackGiantTarget(){const g=S.g;if(g.tx==null)return;let b=null,bd=1e9;for(const t of S.towns)if(t.alive){const d=Math.hypot(t.x-g.tx,t.y-g.ty);if(d<bd){bd=d;b=t}}if(b&&bd<700)g.targetTown=b.i;else g.targetTown=null}
+
+// ---------- game step ----------
+function step(dt){if(S.over)return;S.t+=dt;sndBudget=Math.max(0,sndBudget-dt*20);
+  const mv=readMove();
+  if(S.role==='giant'){if(mv.x||mv.y){const g=S.g;g.tx=g.x+mv.x*400;g.ty=g.y+mv.y*400}trackGiantTarget()}else botGiant(dt);
+  for(const h of S.humans){let m={x:0,y:0};
+    if(h.you){if(h.mode==='climb'){if(mv.x||mv.y){if(!climbLatch){climbLatch=true;climbMove(h,{x:mv.x,y:-mv.y})}}else climbLatch=false}else m=mv}
+    else m=botHuman(h,dt);
+    stepHuman(h,dt,m)}
+  // player actions
+  for(const a of takePresses()){if(S.role==='giant'){if(a==='A')giantDo('stomp');else if(a==='B')giantDo('smash');else if(a==='X')giantDo('shake');else if(a==='Y'){S.camZoom=S.camZoom===1?1.8:1}}
+    else if(S.you)humanAct(S.you,a)}
+  stepGiant(dt);stepMonsters(dt);stepShots(dt);
+  for(let i=S.fx.length-1;i>=0;i--){S.fx[i].t+=dt;if(S.fx[i].t>S.fx[i].life)S.fx.splice(i,1)}
+  checkEnd()}
+let climbLatch=false;
+function checkEnd(){const alive=S.towns.filter(t=>t.alive);let over=null;
+  if(S.g.dead)over={giantWon:false,text:'The giant has been slain.'};
+  else if(alive.length<=1)over={giantWon:true,text:alive.length?'Only '+alive[0].name+' still stands.':'Every town lies in ruins.'};
+  else if(S.role==='human'&&!S.towns[S.you.town].alive)over={giantWon:true,text:'Your home, '+S.towns[S.you.town].name+', has fallen.',youLost:true};
+  if(!over)return;S.over=over;
+  let win;if(S.role==='giant')win=over.giantWon;else win=!over.youLost&&(over.giantWon?S.towns[S.you.town].alive:true);
+  over.win=win;
+  if(S.role==='giant'){if(win)save.giantWins++;else save.giantLosses++}else{if(win)save.humanWins++;else save.humanLosses++}persist();
+  setTimeout(()=>openEnd(),900)}
+
+// ---------- input ----------
+const keys=new Set();let device='keys';const presses=[];
+const KEYMAP={KeyJ:'A',Space:'A',KeyK:'B',KeyL:'X',KeyH:'Y',KeyE:'A',KeyQ:'B',KeyR:'X',KeyF:'Y'};
+addEventListener('keydown',e=>{if(e.code==='F11'||e.ctrlKey||e.metaKey)return;device='keys';unlockAudio();
+  if(menuOpen()){if(!e.repeat)menuKey(e.code);e.preventDefault();return}
+  if((e.code==='Escape'||e.code==='KeyP')&&!e.repeat){openPause();e.preventDefault();return}
+  if(!keys.has(e.code)&&KEYMAP[e.code])presses.push(KEYMAP[e.code]);keys.add(e.code);
+  if(/Arrow|Space/.test(e.code))e.preventDefault()});
+addEventListener('keyup',e=>keys.delete(e.code));
+function releaseAll(){keys.clear();stick.on=false;stick.x=stick.y=0;padHeld.clear()}
+addEventListener('blur',()=>{releaseAll();if(S&&!S.over&&!menuOpen())openPause()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseAll();if(S&&!S.over&&!menuOpen())openPause()}});
+function takePresses(){const p=presses.splice(0);return p}
+function stickInput(ax,ay,dead){const m=Math.hypot(ax,ay);if(m<=dead)return[0,0];const k=Math.min(1,(m-dead)/(1-dead))/m;return[ax*k,ay*k]}
+let padVec={x:0,y:0};const padHeld=new Set();let padLatch=new Set();
+function readMove(){let x=0,y=0;
+  if(keys.has('KeyA')||keys.has('ArrowLeft'))x-=1;if(keys.has('KeyD')||keys.has('ArrowRight'))x+=1;
+  if(keys.has('KeyW')||keys.has('ArrowUp'))y-=1;if(keys.has('KeyS')||keys.has('ArrowDown'))y+=1;
+  let l=Math.hypot(x,y);if(l>1){x/=l;y/=l}
+  const cand=[{x,y},padVec,{x:stick.x,y:stick.y}];let best={x:0,y:0},bm=0;
+  for(const c of cand){const m=Math.hypot(c.x,c.y);if(m>bm){bm=m;best=c}}return{x:best.x,y:best.y}}
+let padSeen=false;
+addEventListener('gamepadconnected',()=>{padSeen=true});
+addEventListener('gamepaddisconnected',()=>{if(S&&!S.over&&!menuOpen())openPause()});
+function pollPad(){const pads=navigator.getGamepads?navigator.getGamepads():[];let ax=0,ay=0,any=false;const now=new Set();
+  for(const gp of pads){if(!gp)continue;any=true;
+    const a0=gp.axes[0]||0,a1=gp.axes[1]||0;if(Math.hypot(a0,a1)>Math.hypot(ax,ay)){ax=a0;ay=a1}
+    gp.buttons.forEach((b,i)=>{if(b.pressed)now.add(i)})}
+  const [sx,sy]=stickInput(ax,ay,.2);padVec={x:sx,y:sy};
+  if(now.size||sx||sy)device='pad';
+  const edge=[];for(const i of now)if(!padHeld.has(i)&&!padLatch.has(i))edge.push(i);
+  for(const i of padLatch)if(!now.has(i))padLatch.delete(i);
+  padHeld.clear();for(const i of now)padHeld.add(i);
+  if(!any)return;
+  for(const i of edge){unlockAudio();
+    if(menuOpen()){const m={12:'ArrowUp',13:'ArrowDown',14:'ArrowLeft',15:'ArrowRight',0:'Enter',1:'Escape',9:'Escape'}[i];if(m)menuKey(m);continue}
+    if(i===9||i===8){openPause();continue}
+    const s={0:'A',1:'B',2:'X',3:'Y'}[i];if(s)presses.push(s)}}
+
+// touch stick and taps
+const stick={on:false,id:null,ox:0,oy:0,x:0,y:0};
+const stEl=document.getElementById('stick');
+function goTouch(e){if(e.pointerType==='touch'){device='touch';document.body.classList.add('touch')}}
+addEventListener('pointerdown',e=>{goTouch(e);unlockAudio()},{capture:true});
+stEl.addEventListener('pointerdown',e=>{e.preventDefault();stEl.setPointerCapture(e.pointerId);stick.on=true;stick.id=e.pointerId;stick.ox=e.clientX;stick.oy=e.clientY;stick.x=stick.y=0});
+stEl.addEventListener('pointermove',e=>{if(!stick.on||e.pointerId!==stick.id)return;const dx=(e.clientX-stick.ox)/55,dy=(e.clientY-stick.oy)/55;const [x,y]=stickInput(clamp(dx,-1.5,1.5),clamp(dy,-1.5,1.5),.12);const l=Math.hypot(x,y);stick.x=l>1?x/l:x;stick.y=l>1?y/l:y});
+const endStick=e=>{if(e.pointerId===stick.id){stick.on=false;stick.x=stick.y=0}};
+stEl.addEventListener('pointerup',endStick);stEl.addEventListener('pointercancel',endStick);
+const cv=document.getElementById('cv');
+let tapDown=null;
+cv.addEventListener('pointerdown',e=>{tapDown={x:e.clientX,y:e.clientY,t:performance.now()}});
+cv.addEventListener('pointerup',e=>{if(!tapDown||!S||S.over||menuOpen())return;const moved=Math.hypot(e.clientX-tapDown.x,e.clientY-tapDown.y);tapDown=null;if(moved>18)return;
+  const r=cv.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;
+  if(S.role==='human'&&S.you.mode==='climb'){const k=climbPick(sx,sy);if(k&&ADJ[S.you.part].includes(k)&&!S.you.to){S.you.to=k;S.you.prog=0;S.you.lastAct=S.t}else if(k===S.you.part)presses.push('A');return}
+  const w=screenToWorld(sx,sy);
+  if(S.role==='giant'){S.g.tx=w.x;S.g.ty=w.y;S.fx.push({k:'mark',x:w.x,y:w.y,t:0,life:1,r:60,col:'#ffd36b'})}
+  else if(S.you&&!S.you.dead){S.you.tx=w.x;S.you.ty=w.y;S.fx.push({k:'mark',x:w.x,y:w.y,t:0,life:.6,r:20,col:'#ffffff'})}});
+
+// action buttons
+const btnsEl=document.getElementById('btns');const SLOTS=['A','B','X','Y'];
+const KEYNAMES={keys:{A:'J',B:'K',X:'L',Y:'H'},pad:{A:'A',B:'B',X:'X',Y:'Y'},touch:{A:'',B:'',X:'',Y:''}};
+btnsEl.innerHTML=SLOTS.map(s=>`<button class="ab" data-s="${s}"><span class="k"></span><span class="l"></span><small></small></button>`).join('');
+btnsEl.querySelectorAll('.ab').forEach(b=>{b.addEventListener('pointerdown',e=>{e.preventDefault();if(!S||S.over||menuOpen())return;presses.push(b.dataset.s)})});
+function slotInfo(){if(!S)return null;
+  if(S.role==='giant'){const r=k=>canGiant(k);return{A:{l:'Stomp',why:r('stomp')},B:{l:'Smash',why:r('smash')},X:{l:'Shake',why:r('shake')},Y:{l:S.camZoom===1?'Zoom out':'Zoom in',why:null}}}
+  return humanCtx(S.you)}
+let lastBtnSig='';
+function paintButtons(){const info=slotInfo();if(!info)return;const kn=KEYNAMES[device]||KEYNAMES.keys;let sig=device;
+  for(const s of SLOTS)sig+=info[s].l+'|'+info[s].why;if(sig===lastBtnSig)return;lastBtnSig=sig;
+  btnsEl.querySelectorAll('.ab').forEach(b=>{const s=b.dataset.s,i=info[s];b.querySelector('.k').textContent=kn[s];b.querySelector('.l').textContent=i.l;b.querySelector('small').textContent=i.why||'';b.classList.toggle('off',!!i.why)})}
+
+// ---------- menus ----------
+const ovTitle=document.getElementById('ovTitle'),ovMenu=document.getElementById('ovMenu');
+let menuList=[],menuFocus=0,menuBack=null;
+function menuOpen(){return ovTitle.classList.contains('on')||ovMenu.classList.contains('on')}
+function curOverlay(){return ovMenu.classList.contains('on')?ovMenu:ovTitle}
+function setButtons(container,items,back,keepFocus){
+  const prev=menuList[menuFocus]?.dataset.id;
+  container.innerHTML='';menuList=[];
+  for(const it of items){const b=document.createElement('button');b.className='mb'+(it.why?' off':'');b.dataset.id=it.id;b.innerHTML=it.label+(it.why||it.sub?`<small>${it.why||it.sub}</small>`:'');
+    b.addEventListener('click',()=>{if(it.why){toast(it.why);return}it.go()});container.appendChild(b);menuList.push(b)}
+  menuBack=back;menuFocus=0;if(keepFocus&&prev){const i=menuList.findIndex(b=>b.dataset.id===prev);if(i>=0)menuFocus=i}
+  paintFocus()}
+function paintFocus(){menuList.forEach((b,i)=>b.classList.toggle('focus',i===menuFocus));menuList[menuFocus]?.scrollIntoView({block:'nearest'})}
+function menuKey(code){
+  const dir={ArrowUp:[0,-1],KeyW:[0,-1],ArrowDown:[0,1],KeyS:[0,1],ArrowLeft:[-1,0],KeyA:[-1,0],ArrowRight:[1,0],KeyD:[1,0]}[code];
+  if(dir){spatial(dir[0],dir[1]);return}
+  if(code==='Enter'||code==='Space'||code==='KeyJ'){menuList[menuFocus]?.click();return}
+  if(code==='Escape'||code==='KeyK'||code==='KeyP'){if(menuBack)menuBack()}}
+function spatial(dx,dy){const from=menuList[menuFocus]?.getBoundingClientRect();if(!from){menuFocus=0;paintFocus();return}
+  const fx=from.left+from.width/2,fy=from.top+from.height/2;let best=-1,bs=1e9;
+  menuList.forEach((b,i)=>{if(i===menuFocus)return;const r=b.getBoundingClientRect();const vx=r.left+r.width/2-fx,vy=r.top+r.height/2-fy;const along=vx*dx+vy*dy,across=Math.abs(vx*dy-vy*dx);if(along<=4)return;const s=along+across*2;if(s<bs){bs=s;best=i}});
+  if(best>=0){menuFocus=best;paintFocus()}}
+function latchPad(){for(const i of padHeld)padLatch.add(i);presses.length=0;keys.clear()}
+function closeMenu(){ovMenu.classList.remove('on');ovTitle.classList.remove('on');latchPad();menuBack=null}
+function showMenu(title,bodyHtml,items,back,keep){document.getElementById('menuH').textContent=title;document.getElementById('menuBody').innerHTML=bodyHtml||'';
+  ovTitle.classList.remove('on');ovMenu.classList.add('on');setButtons(document.getElementById('menuBtns'),items,back,keep);latchPad()}
+function openTitle(){S=null;ovMenu.classList.remove('on');ovTitle.classList.add('on');
+  document.getElementById('record').textContent=`As giant: ${save.giantWins} won, ${save.giantLosses} lost. As human: ${save.humanWins} won, ${save.humanLosses} lost.`;
+  setButtons(document.getElementById('titleBtns'),[
+    {id:'g',label:'Play as the Giant',sub:'Walk the land, crush two of the three towns',go:()=>start('giant')},
+    {id:'h',label:'Play as a Human',sub:'Quest, shop, climb. Keep Ashford standing.',go:()=>start('human')},
+    {id:'help',label:'How to play',go:()=>openHelp(openTitle)},
+    {id:'snd',label:'Sound: '+(save.sound?'on':'off'),go:()=>{save.sound=!save.sound;persist();openTitle();menuFocus=3;paintFocus()}},
+  ],null);latchPad()}
+function openHelp(back){showMenu('How to play',`
+<p><b>The giant</b> walks slowly toward wherever you point it. Each footfall crushes whatever is under the foot, and its shadow shows where the next step lands. <b>Stomp</b> shakes the ground around both feet, <b>Smash</b> brings a fist down on a town in reach, and <b>Shake</b> rattles climbers off its body and knocks spikes loose. The giant wins when only one town is left.</p>
+<p><b>Humans</b> take quests in town, hunt beasts and gather sky crystals for gold, and spend it at the town shop. Walk up to a planted foot and <b>Climb</b>. On the body, grip drains, faster while moving. Rest on the back to regain it. When the giant tenses, hold still to brace.</p>
+<p><b>Spikes</b> bleed a body part. Cripple one leg and the giant slows. Cripple both and it falls, putting its head on the ground. Slay the head to win. <b>Cannons</b> mounted on the arms or back fire at every town except the builder's. Rival bots will arm the giant against you, so wreck their cannons.</p>
+<p class="dim">Keys: move with WASD or arrows, actions J K L H, pause Esc. Gamepad: left stick, A B X Y, Start. Touch: drag the left pad or tap the map, and use the buttons.</p>`,
+  [{id:'back',label:'Back',go:back}],back)}
+function openPause(){if(!S||S.over)return;showMenu('Paused','',[
+  {id:'r',label:'Resume',go:closeMenu},{id:'help',label:'How to play',go:()=>openHelp(openPause)},
+  {id:'snd',label:'Sound: '+(save.sound?'on':'off'),go:()=>{save.sound=!save.sound;persist();openPause()}},
+  {id:'restart',label:'Restart',sub:'New map, same side',go:()=>start(S.role)},{id:'quit',label:'Quit to title',go:openTitle}],closeMenu,true)}
+function openEnd(){const o=S.over;showMenu(o.win?'Victory':'Defeat',`<p>${o.text}</p><p class="dim">${S.role==='giant'?'Towns destroyed: '+S.g.kills:'Level '+S.you.lvl+', '+S.you.gold+' gold'}. Time ${Math.floor(S.t/60)}m ${Math.floor(S.t%60)}s.</p>`,
+  [{id:'again',label:'Play again',go:()=>start(S.role)},{id:'swap',label:'Switch side',sub:S.role==='giant'?'Play as a human':'Play as the giant',go:()=>start(S.role==='giant'?'human':'giant')},{id:'quit',label:'Title',go:openTitle}],null)}
+function openTown(t){if(!t)return;const h=S.you;const C2=C.COST;
+  const own=t.i===h.town;
+  const q=h.quest;
+  const qItem=q?(q.done?{id:'q',label:'Quest complete',sub:'Reward claimed on entry',why:null,go:()=>openTown(t)}:{id:'q',label:'Quest: '+q.text,sub:(q.n+'/'+q.need)+', reward '+q.gold+' gold',go:()=>openTown(t)}):
+    {id:'q',label:'Take a quest',sub:'From the town board',go:()=>{h.quest=newQuest(h);toast('New quest: '+h.quest.text);openTown(t)}};
+  const buy=(id,label,cost,sub,can,fn)=>({id,label:label+' — '+cost+'g',sub,why:h.gold<cost?'Need '+(cost-h.gold)+' more gold':can,go:()=>{h.gold-=cost;fn();sfx('coin');openTown(t)}});
+  showMenu(t.name+(own?' (home)':''),`<p class="dim">Gold ${h.gold}. Level ${h.lvl}. Health ${Math.ceil(h.hp)}/${h.max}. Attack ${h.atk}. Armour ${h.def}. Town walls ${Math.ceil(t.hp)}/${t.max}.</p>`,[
+    qItem,
+    buy('spike','Spike kit',C2.spike,'Drive into the giant: bleeds a part ('+h.kits.spike+' held)',h.kits.spike>=4?'Carry at most 4':null,()=>h.kits.spike++),
+    buy('cannon','Cannon kit',C2.cannon,'Mount on arm or back: shoots other towns ('+h.kits.cannon+' held)',h.kits.cannon>=2?'Carry at most 2':null,()=>h.kits.cannon++),
+    buy('sword','Sharpen sword',C2.sword,'Attack +4 (now '+h.atk+')',null,()=>h.atk+=4),
+    buy('armor','Armour plate',C2.armor,'Armour +3 (now '+h.def+')',h.def>=15?'Armour maxed':null,()=>h.def+=3),
+    buy('potion','Potion',C2.potion,'Heals 60 ('+h.potions+' held)',h.potions>=5?'Carry at most 5':null,()=>h.potions++),
+    {id:'leave',label:'Leave town',go:closeMenu}],closeMenu,true)}
+
+// ---------- camera & render ----------
+const ctx=cv.getContext('2d');const view={dpr:0,w:0,h:0,scale:1,cx:0,cy:0,shake:0};
+function fit(){const r=cv.getBoundingClientRect();view.dpr=devicePixelRatio||1;view.w=r.width;view.h=r.height;cv.width=Math.round(r.width*view.dpr);cv.height=Math.round(r.height*view.dpr)}
+function stale(){const r=cv.getBoundingClientRect();return (devicePixelRatio||1)!==view.dpr||r.width!==view.w||r.height!==view.h}
+function shakeCam(a){if(!save.reduced)view.shake=Math.max(view.shake,a)}
+function near(p){if(!S)return false;const c={x:view.cx,y:view.cy};return Math.hypot(p.x-c.x,p.y-c.y)<1400}
+function camSpan(){return S.role==='giant'?2300*S.camZoom:760}
+function worldScale(){return Math.min(view.w,view.h)/camSpan()}
+function screenToWorld(sx,sy){const k=worldScale();return{x:view.cx+(sx-view.w/2)/k,y:view.cy+(sy-view.h/2)/k}}
+let ground=null;
+function buildGround(){const M=C.MAP,res=8,n=M/res;const c=document.createElement('canvas');c.width=c.height=n;const g=c.getContext('2d');
+  const r=mulberry32(S.seed+7);g.fillStyle='#4f7a43';g.fillRect(0,0,n,n);
+  for(let i=0;i<900;i++){const x=r()*n,y=r()*n,s=6+r()*30;g.fillStyle=r()<.5?'#56823f':'#476f3e';g.beginPath();g.arc(x,y,s,0,7);g.fill()}
+  for(let i=0;i<260;i++){const x=r()*n,y=r()*n;let ok=S.towns.every(t=>Math.hypot(t.x/res-x,t.y/res-y)>45);if(!ok)continue;g.fillStyle='#2f5430';for(let k=0;k<6;k++){g.beginPath();g.arc(x+r()*14-7,y+r()*14-7,3+r()*4,0,7);g.fill()}}
+  g.strokeStyle='#a99a72';g.lineWidth=5;g.globalAlpha=.7;
+  for(let i=0;i<3;i++){const a=S.towns[i],b=S.towns[(i+1)%3];g.beginPath();g.moveTo(a.x/res,a.y/res);g.quadraticCurveTo(M/2/res+(r()-0.5)*100,M/2/res+(r()-0.5)*100,b.x/res,b.y/res);g.stroke()}
+  g.globalAlpha=1;ground=c}
+function shapePath(c,shape,x,y,r){c.beginPath();if(shape==='square')c.rect(x-r*.85,y-r*.85,r*1.7,r*1.7);else if(shape==='diamond'){c.moveTo(x,y-r*1.15);c.lineTo(x+r*1.15,y);c.lineTo(x,y+r*1.15);c.lineTo(x-r*1.15,y)}else c.arc(x,y,r,0,7);c.closePath()}
+function bar(c,x,y,w,v,col){c.fillStyle='rgba(0,0,0,.65)';c.fillRect(x-w/2-1,y-1,w+2,6);c.fillStyle=col;c.fillRect(x-w/2,y,w*clamp(v,0,1),4)}
+function label(c,text,x,y,size,col){c.font=`600 ${size}px system-ui,sans-serif`;c.textAlign='center';c.textBaseline='middle';const w=c.measureText(text).width;c.fillStyle='rgba(10,12,10,.72)';c.fillRect(x-w/2-4,y-size*.65,w+8,size*1.3);c.fillStyle=col||'#f2efe4';c.fillText(text,x,y)}
+
+function render(){if(stale())fit();const c=ctx;c.setTransform(view.dpr,0,0,view.dpr,0,0);c.fillStyle='#141a14';c.fillRect(0,0,view.w,view.h);if(!S)return;
+  if(S.role==='human'&&S.you.mode==='climb'&&!S.you.dead){renderClimb(c,S.you);return}
+  // camera
+  let fx,fy;if(S.role==='giant'){fx=S.g.x;fy=S.g.y}else{fx=S.you.x;fy=S.you.y}
+  view.cx+=(fx-view.cx)*.15;view.cy+=(fy-view.cy)*.15;if(Math.abs(fx-view.cx)>1500){view.cx=fx;view.cy=fy}
+  const k=worldScale();let sx=0,sy=0;if(view.shake>0){sx=(Math.random()-.5)*view.shake;sy=(Math.random()-.5)*view.shake;view.shake*=.85;if(view.shake<.5)view.shake=0}
+  c.save();c.translate(view.w/2+sx,view.h/2+sy);c.scale(k,k);c.translate(-view.cx,-view.cy);
+  c.imageSmoothingEnabled=true;c.drawImage(ground,0,0,C.MAP,C.MAP);
+  c.strokeStyle='#000';c.lineWidth=8/k;c.strokeRect(0,0,C.MAP,C.MAP);
+  const px=1/k; // one screen px in world units
+  // crystals
+  for(const cr of S.crystals){const q=Math.max(1,6*px/7);c.fillStyle='#bff4ff';c.strokeStyle='#1a3a44';c.lineWidth=2*px;c.beginPath();c.moveTo(cr.x,cr.y-10*q);c.lineTo(cr.x+7*q,cr.y);c.lineTo(cr.x,cr.y+10*q);c.lineTo(cr.x-7*q,cr.y);c.closePath();c.fill();c.stroke()}
+  // towns
+  for(const t of S.towns){c.save();
+    if(t.alive){c.fillStyle='#8c7a5a';c.beginPath();c.arc(t.x,t.y,t.r,0,7);c.fill();c.strokeStyle=t.col;c.lineWidth=Math.max(6,3*px);c.stroke();
+      const r2=mulberry32(t.i+11);for(let i=0;i<14;i++){const a=r2()*6.28,d=r2()*t.r*.75;c.fillStyle=i%3?'#d9c9a3':'#b5543c';c.fillRect(t.x+Math.cos(a)*d-12,t.y+Math.sin(a)*d-10,24,20)}
+      shapePath(c,t.shape,t.x,t.y,26);c.fillStyle=t.col;c.fill();c.strokeStyle='#111';c.lineWidth=3*px;c.stroke()}
+    else{c.fillStyle='#3a3430';c.beginPath();c.arc(t.x,t.y,t.r,0,7);c.fill();c.fillStyle='#5b524a';const r2=mulberry32(t.i+5);for(let i=0;i<20;i++)c.fillRect(t.x+(r2()-.5)*t.r*1.4,t.y+(r2()-.5)*t.r*1.4,10,8)}
+    c.restore()}
+  drawGiant(c,S.g,px);
+  // monsters
+  for(const m0 of S.monsters){const m={...m0,r:Math.max(m0.r,(m0.kind==='troll'?9:7)*px)};c.fillStyle=m.kind==='troll'?'#7a5236':'#9a9a9a';c.strokeStyle='#111';c.lineWidth=2*px;c.beginPath();
+    if(m.kind==='troll'){c.rect(m.x-m.r,m.y-m.r,m.r*2,m.r*2)}else{c.moveTo(m.x+m.r,m.y);c.lineTo(m.x-m.r,m.y-m.r*.8);c.lineTo(m.x-m.r,m.y+m.r*.8);c.closePath()}
+    c.fill();c.stroke();if(m.hp<m.max)bar(c,m.x,m.y-m.r-8,30,m.hp/m.max,'#ff8a7a')}
+  // humans on ground
+  for(const h of S.humans){if(h.dead||h.mode!=='ground')continue;const T=TOWNS[h.town];const r=Math.max(h.you?13:10,(h.you?9:7)*px);
+    if(h.swing>0){c.strokeStyle='#fff';c.lineWidth=3*px;c.beginPath();c.arc(h.x,h.y,r+12,h.face-1,h.face+1);c.stroke()}
+    shapePath(c,T.shape,h.x,h.y,r);c.fillStyle=T.col;c.fill();c.strokeStyle=h.you?'#ffffff':'#111';c.lineWidth=(h.you?3:2)*px;c.stroke();
+    if(h.you){c.strokeStyle='#fff';c.lineWidth=2*px;c.beginPath();c.arc(h.x,h.y,r+7,0,7);c.stroke()}}
+  // telegraphs: landing shadows, wind-ups
+  const g=S.g;
+  for(const f of g.feet)if(f.air>0){const p=1-f.air/f.dur;c.fillStyle=`rgba(0,0,0,${.15+p*.35})`;c.beginPath();c.arc(f.lx,f.ly,C.FOOT_R*(1.4-p*.4),0,7);c.fill();c.strokeStyle='rgba(255,90,70,.8)';c.lineWidth=3*px;c.beginPath();c.arc(f.lx,f.ly,C.FOOT_R,0,7);c.stroke()}
+  if(g.wind&&g.wind.k!=='shake'){const tot=g.wind.k==='stomp'?C.STOMP_WIND:C.SMASH_WIND,p=1-g.wind.t/tot;const pts=g.wind.k==='stomp'?g.feet:[g.wind],R=g.wind.k==='stomp'?C.STOMP_R:C.SMASH_R;
+    for(const q of pts){c.fillStyle=`rgba(255,80,60,${.12+p*.25})`;c.beginPath();c.arc(q.x,q.y,R*p,0,7);c.fill();c.strokeStyle='rgba(255,90,70,.9)';c.lineWidth=3*px;c.setLineDash([12*px,8*px]);c.beginPath();c.arc(q.x,q.y,R,0,7);c.stroke();c.setLineDash([])}}
+  for(const s of S.shots){c.fillStyle='#222';c.beginPath();c.arc(s.x,s.y,9,0,7);c.fill();c.strokeStyle='#ffb35c';c.lineWidth=2*px;c.stroke()}
+  for(const e of S.fx){const p=e.t/e.life;c.strokeStyle=e.col;c.globalAlpha=1-p;c.lineWidth=4*px;c.beginPath();c.arc(e.x,e.y,e.k==='mark'?e.r*(1-p*.5):e.r*(.5+p*.5),0,7);c.stroke();c.globalAlpha=1}
+  // labels
+  for(const t of S.towns){label(c,t.name+(S.you&&S.you.town===t.i?' (home)':''),t.x,t.y-t.r-26*px,13*px,t.col);if(t.alive)bar(c,t.x,t.y-t.r-12*px,120,t.hp/t.max,'#9fe08a')}
+  if(S.you&&!S.you.dead){const h=S.you;bar(c,h.x,h.y-24,40,h.hp/h.max,'#9fe08a');const ft=nearFoot(h);if(ft)label(c,'Climb the '+PARTS[ft].name.toLowerCase(),h.x,h.y+34*px,12*px,'#ffd36b')}
+  if(S.role==='giant'&&g.tx!=null){c.strokeStyle='rgba(255,211,107,.6)';c.lineWidth=2*px;c.setLineDash([10*px,10*px]);c.beginPath();c.moveTo(g.x,g.y);c.lineTo(g.tx,g.ty);c.stroke();c.setLineDash([])}
+  c.restore();
+  // dead overlay
+  if(S.you&&S.you.dead){label(c,'Returning to town in '+Math.ceil(S.you.dead)+'s',view.w/2,view.h/2,16,'#ff8a7a')}
+  drawMinimap(c);
+  drawBodyPanel(c,S.role==='giant');
+  if(g.wind&&g.wind.k==='shake'&&S.role==='giant')label(c,'Shaking...',view.w/2,30,15,'#ffd36b')}
+function drawGiant(c,g,px){const f=fwd(g),side={x:-f.y,y:f.x};c.save();
+  // feet
+  g.feet.forEach((ft,i)=>{const lift=ft.air>0?Math.sin((1-ft.air/ft.dur)*Math.PI):0;const s=1+lift*.35;c.save();c.translate(ft.x,ft.y);c.rotate(g.ang);
+    c.globalAlpha=lift>0?.7:1;c.fillStyle='#5a4a3c';c.strokeStyle='#1b1410';c.lineWidth=4*px;c.beginPath();c.ellipse(0,0,C.FOOT_R*1.2*s,C.FOOT_R*.62*s,0,0,7);c.fill();c.stroke();
+    const p=g.parts[i?'rleg':'lleg'];if(p.crip){c.strokeStyle='#ff8a7a';c.lineWidth=6*px;c.beginPath();c.moveTo(-40,-20);c.lineTo(10,10);c.lineTo(-10,25);c.stroke()}
+    c.restore()});
+  // body from above, translucent so the ground shows
+  const body=g.fallen>0?{x:g.x+f.x*420,y:g.y+f.y*420}:{x:g.x,y:g.y};
+  c.translate(body.x,body.y);c.rotate(g.ang);c.globalAlpha=g.dead?.6:.42;c.fillStyle=g.dead?'#3a3430':'#2b231c';
+  if(g.fallen>0||g.dead){c.beginPath();c.ellipse(0,0,520,260,0,0,7);c.fill();c.beginPath();c.arc(420,0,130,0,7);c.fill()}
+  else{c.beginPath();c.ellipse(0,0,180,440,0,0,7);c.fill();c.beginPath();c.arc(40,0,140,0,7);c.fill();c.beginPath();c.ellipse(-20,-400,90,130,0,0,7);c.fill();c.beginPath();c.ellipse(-20,400,90,130,0,0,7);c.fill()}
+  c.globalAlpha=1;c.restore();
+  // builds on the body, drawn at part positions
+  for(const k of['torso','larm','rarm']){const w=partWorld(k);for(const [bi,b] of g.parts[k].builds.entries()){const x=w.x+(bi-.5)*60,y=w.y;
+    if(b.k==='cannon'){c.fillStyle='#1a1a1a';c.beginPath();c.arc(x,y,22,0,7);c.fill();shapePath(c,TOWNS[b.town].shape,x,y,10);c.fillStyle=TOWNS[b.town].col;c.fill()}
+    else{c.fillStyle='#d8d0c0';c.beginPath();c.moveTo(x,y-22);c.lineTo(x+12,y+12);c.lineTo(x-12,y+12);c.closePath();c.fill()}}}
+  const hp=headPos(g);if(g.fallen>0&&!g.dead){label(c,'HEAD: strike now ('+Math.ceil(g.fallen)+'s)',hp.x,hp.y-170,14*px,'#ffd36b')}
+  // climbers seen from above
+  for(const h of S.humans)if(h.mode==='climb'&&!h.dead){const w=partWorld(h.part);const T=TOWNS[h.town];shapePath(c,T.shape,w.x+((h.id*37)%60)-30,w.y+((h.id*53)%60)-30,9);c.fillStyle=T.col;c.fill();c.strokeStyle='#111';c.lineWidth=2*px;c.stroke()}
+}
+function drawMinimap(c){const s=Math.min(110,Math.min(view.w,view.h)*.26),x0=view.w-s-8,y0=8,k=s/C.MAP;
+  c.fillStyle='rgba(10,14,10,.8)';c.fillRect(x0-2,y0-2,s+4,s+4);c.drawImage(ground,x0,y0,s,s);
+  for(const t of S.towns){shapePath(c,t.shape,x0+t.x*k,y0+t.y*k,6);c.fillStyle=t.alive?t.col:'#555';c.fill();c.strokeStyle='#111';c.lineWidth=1;c.stroke()}
+  const g=S.g;c.fillStyle='#2b231c';c.strokeStyle='#ffd36b';c.lineWidth=2;c.beginPath();c.arc(x0+g.x*k,y0+g.y*k,7,0,7);c.fill();c.stroke();
+  if(S.you){c.fillStyle='#fff';c.beginPath();c.arc(x0+S.you.x*k,y0+S.you.y*k,3,0,7);c.fill()}
+  const r=view.w/2/worldScale()*k,rh=view.h/2/worldScale()*k;c.strokeStyle='rgba(255,255,255,.6)';c.lineWidth=1;c.strokeRect(x0+view.cx*k-r,y0+view.cy*k-rh,r*2,rh*2)}
+
+// side-view body, used full screen when climbing and as a small panel for the giant
+function bodyLayout(x,y,w,h){return k=>({x:x+w/2+PARTS[k].sx*w,y:y+h-PARTS[k].sy*h})}
+function drawBodySil(c,L,w,h,g,fallen){c.save();c.lineCap='round';c.lineJoin='round';
+  const col=k=>{const p=g.parts[k];if(p.crip)return'#6b2a22';const v=p.hp/p.max;return v>.6?'#6d5a48':v>.3?'#7d5a40':'#8a4a34'};
+  const seg=(a,b,wd,k)=>{c.strokeStyle=col(k);c.lineWidth=wd;c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);c.stroke()};
+  const hip=L('torso'),base=h*.04;const hipP={x:hip.x,y:hip.y+h*.12};
+  const lf={x:L('lleg').x-w*.03,y:L('lleg').y+h*.2},rf={x:L('rleg').x+w*.03,y:L('rleg').y+h*.2};
+  seg(lf,{x:hipP.x-w*.07,y:hipP.y},w*.14,'lleg');seg(rf,{x:hipP.x+w*.07,y:hipP.y},w*.14,'rleg');
+  seg(hipP,{x:hip.x,y:L('head').y+h*.12},w*.3,'torso');
+  const sh=L('head').y+h*.14;seg({x:hip.x-w*.15,y:sh},{x:L('larm').x,y:L('larm').y+h*.12},w*.09,'larm');seg({x:hip.x+w*.15,y:sh},{x:L('rarm').x,y:L('rarm').y+h*.12},w*.09,'rarm');
+  c.fillStyle=col('head');c.beginPath();c.arc(L('head').x,L('head').y,w*.1,0,7);c.fill();
+  c.restore()}
+function drawPartsInfo(c,L,g,size,you){for(const k in PARTS){const p=g.parts[k],q=L(k);
+  const adj=you&&!you.to&&ADJ[you.part].includes(k);
+  if(adj){c.strokeStyle='rgba(255,211,107,.85)';c.lineWidth=2;c.setLineDash([5,4]);c.beginPath();c.arc(q.x,q.y,size*1.6,0,7);c.stroke();c.setLineDash([])}
+  bar(c,q.x,q.y+size*1.2,size*3,p.hp/p.max,p.crip?'#ff8a7a':'#9fe08a');
+  p.builds.forEach((b,i)=>{const x=q.x+(i-.5)*size*1.5,y=q.y-size*1.3;if(b.k==='cannon'){c.fillStyle='#111';c.beginPath();c.arc(x,y,size*.5,0,7);c.fill();shapePath(c,TOWNS[b.town].shape,x,y,size*.25);c.fillStyle=TOWNS[b.town].col;c.fill()}else{c.fillStyle='#e8e0d0';c.strokeStyle='#111';c.lineWidth=1;c.beginPath();c.moveTo(x,y-size*.5);c.lineTo(x+size*.35,y+size*.4);c.lineTo(x-size*.35,y+size*.4);c.closePath();c.fill();c.stroke()}});
+  }}
+function drawClimbers(c,L,size){const groups={};for(const h of S.humans){if(h.mode!=='climb'||h.dead)continue;let q;
+  if(h.to){const a=L(h.part),b=L(h.to);q={x:a.x+(b.x-a.x)*h.prog,y:a.y+(b.y-a.y)*h.prog}}else{const n=groups[h.part]=(groups[h.part]||0)+1;const a=L(h.part);q={x:a.x+((n%3)-1)*size*1.1,y:a.y+Math.floor(n/3)*size*.9-size*.2}}
+  const T=TOWNS[h.town];shapePath(c,T.shape,q.x,q.y,size*(h.you?.55:.42));c.fillStyle=T.col;c.fill();c.strokeStyle=h.you?'#fff':'#111';c.lineWidth=h.you?3:1.5;c.stroke();
+  if(h.you){label(c,'YOU',q.x,q.y-size*1.1,Math.max(11,size*.45),'#fff');h._q=q}}}
+function drawBodyPanel(c,isGiant){if(!isGiant)return;const g=S.g;const w=Math.min(150,view.w*.34),h=w*1.3,x=8,y=view.h-h-8;
+  c.fillStyle='rgba(10,14,10,.78)';c.fillRect(x,y,w,h);const L=bodyLayout(x,y-h*.02,w,h*.92);drawBodySil(c,L,w,h,g);drawPartsInfo(c,L,g,w*.07,null);drawClimbers(c,L,w*.1);
+  label(c,g.fallen>0?'FALLEN '+Math.ceil(g.fallen)+'s':'Your body',x+w/2,y+10,11,g.fallen>0?'#ff8a7a':'#f2efe4')}
+let climbL=null;
+function renderClimb(c,h){const g=S.g;const gr=c.createLinearGradient(0,0,0,view.h);gr.addColorStop(0,'#2a3b52');gr.addColorStop(1,'#4b6a46');c.fillStyle=gr;c.fillRect(0,0,view.w,view.h);
+  let sx=0,sy=0;if(view.shake>0){sx=(Math.random()-.5)*view.shake;sy=(Math.random()-.5)*view.shake;view.shake*=.85}
+  const size=Math.min(view.w,view.h)*.07;const bw=Math.min(view.w*.9,view.h*.75),bh=view.h*.86;const bx=(view.w-bw)/2+sx,by=view.h*.06+sy;
+  c.fillStyle='#3d5a36';c.fillRect(0,by+bh*1.02,view.w,view.h);
+  const L=bodyLayout(bx,by,bw,bh*.8);climbL={L,size};
+  drawBodySil(c,L,bw,bh*.8,g);drawPartsInfo(c,L,g,size*.6,h);drawClimbers(c,L,size);
+  // grip bar
+  const gm=100+(h.lvl-1)*8,gw=Math.min(240,view.w*.6);const gx=view.w/2,gy=view.h-18;bar(c,gx,gy,gw,h.grip/gm,h.grip<30?'#ff8a7a':'#ffd36b');
+  label(c,'Grip '+Math.ceil(h.grip)+(h.part==='torso'&&!h.to?'  resting on the back':'')+'   ·   '+(g.fallen>0?'on the ground':(h.to?'climbing...':PARTS[h.part].h+' ft up')),gx,gy-14,12,'#f2efe4');
+  if(g.wind&&g.wind.k==='shake')label(c,'THE GIANT TENSES: HOLD STILL TO BRACE',view.w/2,28,15,'#ff8a7a');
+  else if(g.fallen>0)label(c,'The giant is down: strike the head! '+Math.ceil(g.fallen)+'s',view.w/2,28,14,'#ffd36b');
+  drawMinimap(c);
+  label(c,'Move between parts with the stick or tap a ringed part',view.w/2,view.h-50,11,'#b9b4a4')}
+function climbPick(sx,sy){if(!climbL)return null;let best=null,bd=climbL.size*2;for(const k in PARTS){const q=climbL.L(k);const d=Math.hypot(q.x-sx,q.y-sy);if(d<bd){bd=d;best=k}}return best}
+
+// ---------- hud ----------
+const hudTxt=document.getElementById('hudTxt'),hudQ=document.getElementById('hudQ');let hudSig='';
+function paintHud(){if(!S)return;let a,b;
+  if(S.role==='giant'){const g=S.g,P=g.parts;const live=S.towns.filter(t=>t.alive).length;
+    a=`<b>Giant</b> Towns left <b>${live}</b> · Legs ${Math.ceil(P.lleg.hp)}/${Math.ceil(P.rleg.hp)} · Head ${Math.ceil(P.head.hp)} · Climbers ${S.humans.filter(h=>h.mode==='climb').length}`;
+    b=g.fallen>0?'You have fallen! Shake is useless now; survive until you rise.':'Point where to walk. Crush two of the three towns. Shake off climbers before they cripple your legs.'}
+  else{const h=S.you;a=`<b>${TOWNS[h.town].name}</b> Lv <b>${h.lvl}</b> · HP <b>${Math.ceil(h.hp)}/${h.max}</b> · Gold <b>${h.gold}</b> · Spikes ${h.kits.spike} · Cannons ${h.kits.cannon}`;
+    b=h.quest?('Quest: '+h.quest.text+' '+Math.min(h.quest.n,h.quest.need)+'/'+h.quest.need+(h.quest.done?' done, return to town':'')):'No quest: visit a town and open Town to take one.'}
+  const sig=a+b;if(sig!==hudSig){hudSig=sig;hudTxt.innerHTML=a;hudQ.textContent=b}}
+let toastT=0;const toastEl=document.getElementById('toast');
+function toast(t){toastEl.textContent=t;toastEl.classList.add('on');toastT=2.6}
+
+// ---------- loop ----------
+function start(role){closeMenu();newGame(role,(Date.now()&0xffff)+1);buildGround();view.cx=role==='giant'?S.g.x:S.you.x;view.cy=role==='giant'?S.g.y:S.you.y;lastBtnSig='';
+  toast(role==='giant'?'You are the giant. Tap or steer to walk. Crush the towns.':'You are of Ashford. Enter town and open Town for a quest.')}
+let acc=0,last=performance.now();
+function frame(now){requestAnimationFrame(frame);const dt=Math.min(.1,(now-last)/1000);last=now;pollPad();
+  if(S&&!menuOpen()&&!S.over){acc+=dt;while(acc>=C.DT){step(C.DT);acc-=C.DT}}else acc=0;
+  if(toastT>0){toastT-=dt;if(toastT<=0)toastEl.classList.remove('on')}
+  try{render();paintHud();paintButtons()}catch(e){console.error(e)}}
+fit();openTitle();requestAnimationFrame(frame);
+// test hook
+window.__giant={get S(){return S},start,step,C,botHuman,humanAct,
+  autoplay(role,seed,secs){newGame(role,seed);buildGround();const you=S.you;if(you)you.you=false,you.role='warden';let t=0;while(!S.over&&t<secs){step(C.DT);t+=C.DT}return{t:S.t,over:S.over,towns:S.towns.map(t=>Math.round(t.hp)),parts:Object.fromEntries(Object.entries(S.g.parts).map(([k,p])=>[k,Math.round(p.hp)])),lv:S.humans.map(h=>h.lvl)}}};
+</script>
+</body>
+</html>
